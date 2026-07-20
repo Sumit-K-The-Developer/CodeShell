@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "936338845379",
+    "project_id": "codeshell-a3dd6",
+    "storage_bucket": "codeshell-a3dd6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:936338845379:android:cbfee679ed863f2f5dbc76",
+        "android_client_info": {
+          "package_name": "com.codeshell.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQvVauKt8knacANOOXuOHoL5Yx-DzUwzA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

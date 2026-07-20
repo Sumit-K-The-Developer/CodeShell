@@ -1,0 +1,41 @@
+package com.codeshell.app.navigation
+
+object Routes {
+    const val CODING_LEARN = "coding_learn"
+    const val LOGIN = "login"
+    const val SIGNUP = "signup"
+    const val HOME = "home"
+    const val CHAT = "chat/{chatId}"
+    const val MEDIA = "media/{type}"
+    const val SETTINGS = "settings"
+    const val AI_TUTOR = "ai_tutor/{topicId}?entrySource={entrySource}&welcomeDigits={welcomeDigits}&topicLabel={topicLabel}"
+
+    fun chat(chatId: String) = "chat/$chatId"
+    fun media(type: String) = "media/$type"
+    fun home() = "home"
+    fun aiTutor(
+        topicId: String,
+        topicLabel: String,
+        entrySource: String = "fab",
+        welcomeDigits: String = "",
+    ): String {
+        val encodedLabel = java.net.URLEncoder.encode(topicLabel, Charsets.UTF_8.name())
+        val encodedDigits = java.net.URLEncoder.encode(welcomeDigits, Charsets.UTF_8.name())
+        return "ai_tutor/$topicId?entrySource=$entrySource&welcomeDigits=$encodedDigits&topicLabel=$encodedLabel"
+    }
+}
+
+fun String.decodeFromRoute(): String = java.net.URLDecoder.decode(this, Charsets.UTF_8.name())
+
+fun String?.requiresSecureScreen(): Boolean = isTerminalRoute()
+
+fun String?.isTerminalRoute(): Boolean = when {
+    this == null -> false
+    startsWith("home") -> true
+    startsWith("chat") -> true
+    this == Routes.SETTINGS -> true
+    startsWith("media") -> true
+    this == Routes.LOGIN -> true
+    this == Routes.SIGNUP -> true
+    else -> false
+}

@@ -1,0 +1,632 @@
+{
+  "version": 5,
+  "topics": [
+    {
+      "id": "sentence",
+      "label": "Sentence",
+      "shortLabel": "Sentence"
+    },
+    {
+      "id": "tenses",
+      "label": "Tenses",
+      "shortLabel": "Tenses"
+    },
+    {
+      "id": "noun",
+      "label": "Noun",
+      "shortLabel": "Noun"
+    },
+    {
+      "id": "pronoun",
+      "label": "Pronoun",
+      "shortLabel": "Pronoun"
+    },
+    {
+      "id": "verb",
+      "label": "Verb",
+      "shortLabel": "Verb"
+    },
+    {
+      "id": "adjective",
+      "label": "Adjective",
+      "shortLabel": "Adjective"
+    },
+    {
+      "id": "punctuation",
+      "label": "Punctuation",
+      "shortLabel": "Punctuation"
+    },
+    {
+      "id": "articles",
+      "label": "Articles",
+      "shortLabel": "Articles"
+    },
+    {
+      "id": "prepositions",
+      "label": "Prepositions",
+      "shortLabel": "Prepositions"
+    },
+    {
+      "id": "workbook",
+      "label": "Workbook",
+      "shortLabel": "Workbook"
+    }
+  ],
+  "lessons": {
+    "sentence": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Sentence एक complete thought express करती है — subject (कौन/क्या) और predicate (क्या होता है) दोनों होना ज़रूरी है।",
+          "examples": "Example:\nThe cat sleeps on the mat.\nSubject: The cat | Predicate: sleeps on the mat\n\nChildren play in the park every evening.\n\nKey rules याद रखो:\n- हर sentence capital letter से start होती है।\n- Statement period (.) से end होती है।\n- सिर्फ words का group भी sentence नहीं — complete idea चाहिए।\n\nFragment check: \"Running in the morning.\" — यह sentence नहीं, क्योंकि subject missing है।"
+        },
+        {
+          "title": "Subject and Predicate",
+          "body": "Subject बताता है sentence किस बारे में है; predicate बताता है subject क्या करता है या कैसा है।",
+          "examples": "Example:\nSubject: The teacher | Predicate: explained the lesson clearly.\n\nSubject: Rain | Predicate: fell heavily last night.\n\nFragment (sentence नहीं): Running in the morning.\n\nRules:\n- Subject usually noun या pronoun होता है।\n- Predicate में हमेशा एक verb होता है।\n- Fragment में subject या complete predicate missing होता है।\n\nTip: Verb से पहले \"कौन?\" या \"क्या?\" पूछो — जो मिले वही subject है।"
+        },
+        {
+          "title": "Sentence Types",
+          "body": "End punctuation से पता चलता है sentence statement, question, command, या exclamation है।",
+          "examples": "Example:\nShe reads every evening. (statement — period)\nDo you read often? (question — ?)\nClose the door, please. (command — often no subject \"you\")\nWhat a beautiful sunset! (exclamation — !)\n\nRules:\n- Questions हमेशा ? से end होते हैं।\n- Commands में अक्सर \"you\" छुपा होता है: (You) sit down.\n- Exclamations strong emotion दिखाते हैं — formal writing में कम use करो।"
+        },
+        {
+          "title": "Simple and Compound Sentences",
+          "body": "Simple sentence में एक independent clause होता है; compound में दो या ज़्यादा clauses and, but, or, so से जुड़ते हैं।",
+          "examples": "Example:\nSimple: Birds sing in the morning.\nCompound: Birds sing, and the sun rises.\nCompound: I wanted to go, but it started raining.\n\nRules:\n- दो full sentences जोड़ते वक्त and/but/or से पहले comma लगाओ।\n- दोनों clauses compound sentence में independent होने चाहिए।\n- सिर्फ comma से दो sentences मत जोड़ो — यह comma splice है।"
+        },
+        {
+          "title": "Complex Sentences",
+          "body": "Complex sentence में एक independent clause और कम से कम एक dependent clause होता है — because, when, if, although से start हो सकता है।",
+          "examples": "Example:\nI stayed home because it was raining.\nAlthough she was tired, she finished her homework.\nWhen the bell rang, the students left.\n\nRules:\n- Dependent clause अकेला sentence नहीं बन सकता।\n- जब dependent clause पहले आए, comma लगाओ: Although she was tired, she finished...\n- Independent clause अकेला भी चल सकता है; dependent नहीं।"
+        },
+        {
+          "title": "Common Sentence Errors",
+          "body": "Run-on और fragment सबसे common errors हैं — सही punctuation और complete subject-predicate से fix होते हैं।",
+          "examples": "Example:\nRun-on: I woke up late I missed the bus.\nFixed: I woke up late, so I missed the bus.\n\nFragment: Because it was cold.\nFixed: Because it was cold, we stayed indoors.\n\nRules:\n- Comma splice: सिर्फ comma से दो sentences मत जोड़ो।\n- ज़ोर से पढ़कर run-on और fragment पकड़ो।\n- हर sentence में कम से कम एक subject और एक finite verb होना चाहिए।"
+        },
+        {
+          "title": "Active and Passive Voice",
+          "body": "Active voice में subject action करता है; passive में subject action receive करता है — formal writing में passive ज़्यादा use होता है।",
+          "examples": "Example:\nActive: The chef cooked the meal.\nPassive: The meal was cooked by the chef.\n\nActive: Students submitted the assignments.\nPassive: The assignments were submitted by the students.\n\nRules:\n- Passive: be + past participle (is written, was built, has been done).\n- By-agent optional: The window was broken. (कौन तोड़ा — unknown)\n- Active ज़्यादा direct और clear — prefer active जब तक passive better fit न हो।"
+        },
+        {
+          "title": "Sentence Combining Practice",
+          "body": "Chhote sentences को and, but, because, although, when से जोड़कर fluent paragraph बनाओ — variety reader को engage रखती है।",
+          "examples": "Example:\nSimple pair: I finished my homework. I watched a movie.\nCombined: After I finished my homework, I watched a movie.\n\nThree shorts: The rain stopped. We went outside. We played cricket.\nCombined: When the rain stopped, we went outside and played cricket.\n\nDrill:\n1. She was tired. She continued working. → Although she was tired, she continued working.\n2. He studied hard. He passed the exam. → He studied hard, so he passed the exam.\n\nRules:\n- एक paragraph में simple, compound, complex mix करो।\n- Same idea repeat मत करो — combine या rephrase करो।"
+        },
+        {
+          "title": "Paragraph Coherence",
+          "body": "अच्छा paragraph connected sentences का group है — topic sentence, supporting details, और closing line से flow clear रहता है।",
+          "examples": "Sample paragraph:\nTopic: Morning routines help productivity.\nSupporting: Waking early gives quiet time. A healthy breakfast fuels focus. Planning the day reduces stress.\nClosing: Small habits create a strong start.\n\nCoherence checks:\n- हर sentence same main idea support करे?\n- Transition words smooth हैं? (First, Then, However, Finally)\n- Pronouns clear refer करें (he/she/they = कौन?)\n\nRules:\n- Topic sentence पहले या second line में main point दे।\n- One paragraph = one main idea.\n- Last sentence summary या gentle conclusion दे।"
+        },
+        {
+          "title": "Sentence Self-Test",
+          "body": "नीचे tasks solve करो — answers mentally check करो, फिर aloud पढ़कर natural flow verify करो।",
+          "examples": "Task 1 — Identify type:\na) Where is the library? → interrogative\nb) Please sit down. → command\nc) What a surprise! → exclamation\n\nTask 2 — Fix the error:\nWrong: Although he was late. He entered quietly.\nCorrect: Although he was late, he entered quietly.\n\nTask 3 — Combine:\nThe team won. The fans cheered loudly.\n→ The team won, and the fans cheered loudly.\n\nTask 4 — Active to passive:\nThey built a new bridge. → A new bridge was built by them.\n\nTip: Daily 5 sentences लिखो — subject, verb, correct end mark check करो।"
+        }
+      ],
+      "resources": [
+        {
+          "title": "BBC Learning English — Sentence Structure Basics",
+          "url": "https://www.bbc.co.uk/learningenglish/english/course/eiam/unit-1/session-1"
+        },
+        {
+          "title": "British Council — English Grammar Reference: Sentence Structure",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/sentence-structure"
+        },
+        {
+          "title": "Purdue OWL — Sentence Structure and Types",
+          "url": "https://owl.purdue.edu/owl/general_writing/mechanics/sentence_structure/index.html"
+        }
+      ]
+    },
+    "tenses": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Tense बताता है action past, present, या future में कब होता है — consistent tense से reader confuse नहीं होता।",
+          "examples": "Example:\nPresent: She walks to school.\nPast: She walked to school.\nFuture: She will walk to school.\n\nEnglish में 12 main tense forms हैं, लेकिन तीन time frames base हैं: past, present, future.\n\nRules:\n- एक paragraph में tense match रखो जब तक time clearly change न हो।\n- Time words (yesterday, tomorrow, now) tense choose करने में help करते हैं।"
+        },
+        {
+          "title": "Simple Present",
+          "body": "Habits, routines, general truths, और fixed schedules के लिए simple present use होता है।",
+          "examples": "Example:\nHabit: He plays tennis on Sundays.\nTruth: Water boils at 100°C.\nQuestion: Do they live nearby?\nNegative: She does not like spicy food.\n\nRules:\n- he/she/it के साथ affirmative में verb + s/es: He plays, She watches.\n- Questions और negatives में do/does: Does she know? / She does not know.\n- Stative verbs (know, like, believe) अक्सर simple present में ही रहते हैं।"
+        },
+        {
+          "title": "Present Continuous",
+          "body": "अभी हो रही action, temporary situation, या planned near-future के लिए am/is/are + verb-ing use करो।",
+          "examples": "Example:\nNow: She is reading a book.\nTemporary: I am staying with my aunt this week.\nPlanned: We are meeting them tomorrow.\n\nRules:\n- Moment of speaking पर चल रही action के लिए use करो।\n- Stative verbs (know, want, belong) में usually -ing मत लगाओ।\n- Always, usually, every day के साथ simple present better है, continuous नहीं।"
+        },
+        {
+          "title": "Simple Past",
+          "body": "Past में किसी specific time पर complete हुई action के लिए — regular verbs +ed, irregular अलग form।",
+          "examples": "Example:\nRegular: They visited London last year.\nIrregular: She went home early. (go → went)\nTime marker: Yesterday, I finished my project.\n\nCommon irregular: see→saw, eat→ate, take→took, come→came\n\nRules:\n- yesterday, last week, ago simple past signal करते हैं।\n- Past में did use करो — main verb base form में: Did she go? (not Did she went?)\n- Irregular past forms याद करना important है।"
+        },
+        {
+          "title": "Simple Future",
+          "body": "Future के लिए will + base verb या am/is/are + going to + base verb — will spontaneous, going to planned।",
+          "examples": "Example:\nWill (decision/promise): I will help you with homework.\nGoing to (plan/evidence): It is going to rain — look at those clouds.\nFuture time: Next month, we will start a new course.\n\nRules:\n- Timetable/schedule के लिए will नहीं — simple present: The train leaves at 6.\n- going to = पहले से plan या visible evidence.\n- will = अभी decide किया या promise।"
+        },
+        {
+          "title": "Perfect Tenses Overview",
+          "body": "Perfect tenses दो time points connect करते हैं — present perfect past को अब तक link करता है।",
+          "examples": "Example:\nPresent perfect: I have lived here for five years.\nPast perfect: When I arrived, the movie had already started.\nExperience: She has visited three countries.\n\nRules:\n- Present perfect: have/has + past participle — result या duration अब तक।\n- Past perfect: had + past participle — दो past events में पहले वाली।\n- for/since present perfect के साथ common: for 5 years, since 2020."
+        },
+        {
+          "title": "Past Continuous",
+          "body": "Past में किसी specific moment पर ongoing action — was/were + verb-ing; often simple past के साथ background action।",
+          "examples": "Example:\nAt 8 p.m., I was studying for the exam.\nWhile she was cooking, the phone rang.\nThey were playing when it started raining.\n\nRules:\n- was + I/he/she/it | were + you/we/they\n- When + simple past, past continuous: When I arrived, they were waiting.\n- Stative verbs (know, believe) में usually continuous नहीं।"
+        },
+        {
+          "title": "Present Perfect vs Simple Past",
+          "body": "Simple past = finished time (yesterday, last week); present perfect = connection to now, no exact finished time।",
+          "examples": "Example:\nSimple past: I saw that movie yesterday.\nPresent perfect: I have seen that movie. (experience — when unclear)\n\nWrong: I have finished it yesterday. | Correct: I finished it yesterday.\n\nCorrect present perfect: I have just eaten. | I have never been to Japan.\n\nRules:\n- yesterday, ago, last year → simple past only.\n- just, already, yet, ever, never → often present perfect.\n- Indian English में sometimes mix — exam में strict rule follow करो।"
+        },
+        {
+          "title": "Future Forms in Detail",
+          "body": "Will, going to, present continuous (future), और simple present (timetable) — context decide करता है कौन सा future form।",
+          "examples": "Example:\nSpontaneous: I'll answer the door.\nPlan: We're going to visit Delhi next month.\nArrangement: I'm meeting Ravi at six. (fixed plan)\nTimetable: The train leaves at 9:15. (schedule)\n\nRules:\n- going to + evidence: Look — it's going to rain.\n- will + promise/offer/decision at moment of speaking.\n- Present continuous future = personal arrangement with time/place."
+        },
+        {
+          "title": "Tense Consistency",
+          "body": "एक paragraph या story में tense jump मत करो जब तक time shift clearly signal न हो — reader confuse हो जाता है।",
+          "examples": "Example (inconsistent):\nWrong: Yesterday I go to market and bought vegetables.\nCorrect: Yesterday I went to the market and bought vegetables.\n\nNarrative tip:\nPast story → mostly simple past; flashback → past perfect.\n\nRules:\n- Reported speech में tense often shift: He said he was tired.\n- Historical facts → simple present OK: The sun rises in the east.\n- Headlines sometimes present tense: Prime Minister visits city."
+        },
+        {
+          "title": "Tense Error Correction Drill",
+          "body": "नीचे common Hindi-English tense mistakes fix करो — daily 10 sentences practice से habit बनती है।",
+          "examples": "Fix these:\n1. I am knowing him since 2020. → I have known him since 2020.\n2. She did not went home. → She did not go home.\n3. He will goes tomorrow. → He will go tomorrow.\n4. When I was child, I have played cricket. → When I was a child, I played cricket.\n5. I am living here since five years. → I have lived here for five years.\n\nQuick reference:\nfor + duration | since + starting point\n did + base verb | has/has + past participle"
+        }
+      ],
+      "resources": [
+        {
+          "title": "BBC Learning English — Tenses Overview",
+          "url": "https://www.bbc.co.uk/learningenglish/english/course/eiam/unit-2/session-1"
+        },
+        {
+          "title": "British Council — English Grammar Reference: Tenses",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/tenses"
+        },
+        {
+          "title": "EnglishClub — Verb Tenses Guide",
+          "url": "https://www.englishclub.com/grammar/verb-tenses.htm"
+        }
+      ]
+    },
+    "noun": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Noun person, place, thing, या idea का नाम बताता है — sentence में अक्सर subject या object होता है।",
+          "examples": "Example:\nPerson: teacher | Place: Delhi | Thing: book | Idea: freedom\n\nThe teacher opened the book in Delhi.\n\nNoun से \"कौन?\" या \"क्या?\" का जवाब मिलता है।\n\nSingular/plural, countable/uncountable — ये सब noun की properties हैं जो आगे detail में cover करेंगे।"
+        },
+        {
+          "title": "Types of Noun",
+          "body": "Noun को मुख्यतः पाँच types में बाँटा जाता है — हर type का sentence में अलग role होता है।",
+          "examples": "Noun को मुख्यतः पाँच types में बाँटा जाता है:\n1. Proper Noun — किसी specific person, place, या thing का नाम। हमेशा capital letter से शुरू होता है। Example: Sumit, India, Taj Mahal, Monday.\n2. Common Noun — general नाम, किसी particular चीज़ का नहीं। Example: boy, city, monument, day.\nदेखो difference — \"India\" proper noun है (specific country), लेकिन \"country\" common noun है (कोई भी country हो सकता है)।\n3. Collective Noun — एक group of things या people को represent करता है। Example: team, family, class, herd.\nजैसे \"A team of players\" — यहाँ \"team\" एक collective noun है क्योंकि वो कई players को एक साथ represent कर रहा है।\n4. Material Noun — किसी material या substance का नाम, जिससे चीज़ें बनती हैं। Example: gold, wood, water, cotton.\n5. Abstract Noun — वो चीज़ें जो हम touch या देख नहीं सकते, सिर्फ feel कर सकते हैं — qualities, feelings, ideas। Example: honesty, happiness, courage, love.\n\nExample sentences:\nSumit (Proper) joined the team (Collective) in Delhi (Proper).\nHonesty (Abstract) is more valuable than gold (Material)."
+        },
+        {
+          "title": "Countable and Uncountable Nouns",
+          "body": "Countable nouns गिन सकते हो (one apple, two apples); uncountable को quantity से measure करते हो (some water, much rice)।",
+          "examples": "Example:\nCountable — Singular: one apple, a chair | Plural: three apples, many chairs\nUncountable: water, milk, sugar, homework, advice, information\n\nWrong: two advices | Correct: two pieces of advice\nWrong: many furnitures | Correct: much furniture\n\nRules:\n- Singular countable के साथ a/an use करो।\n- Plural countable के साथ a/an नहीं।\n- Uncountable के साथ some/any/much; plural form मत बनाओ (no waters, no advices)।"
+        },
+        {
+          "title": "Singular and Plural Forms",
+          "body": "ज़्यादा तर nouns -s/-es से plural बनते हैं; कुछ irregular हैं और कुछ दोनों form में same रहते हैं।",
+          "examples": "Example:\nRegular: cat→cats, box→boxes, city→cities\nIrregular: child→children, man→men, foot→feet, mouse→mice\nSame both forms: one sheep, two sheep | one fish, two fish\n\nRules:\n- -y ending: consonant + y → -ies (city→cities); vowel + y → -s (boy→boys).\n- -f/-fe ending अक्सर -ves: knife→knives, leaf→leaves.\n- Uncountable nouns का plural नहीं होता — dictionary check करो अगर doubt हो।"
+        },
+        {
+          "title": "Nouns in Sentences",
+          "body": "Noun subject, direct object, indirect object, या preposition के बाद object बन सकता है।",
+          "examples": "Example:\nSubject: The dog barked.\nDirect object: She bought flowers.\nIndirect object: He gave his sister a gift.\nAfter preposition: We talked about the exam.\n\nTip:\n- Verb से पहले कौन/क्या → subject noun.\n- Transitive verb के बाद क्या → object noun.\n- Preposition के तुरंत बाद noun या pronoun आता है।"
+        },
+        {
+          "title": "Common Noun Errors",
+          "body": "Hindi speakers अक्सर uncountable nouns को plural बनाते हैं या proper noun capitalize करना भूल जाते हैं।",
+          "examples": "Example:\nWrong: I need informations. | Correct: I need information.\nWrong: she lives in mumbai. | Correct: She lives in Mumbai.\nWrong: The team are playing well. (US: team = singular) | Correct: The team is playing well.\n\nRules:\n- Proper nouns हमेशा capital — cities, names, brands, days, months.\n- advice, furniture, luggage, news — uncountable, plural मत बनाओ।\n- Collective noun singular या plural हो सकता है — meaning के हिसाब से decide करो।"
+        },
+        {
+          "title": "Gerunds and Infinitives as Nouns",
+          "body": "Gerund (-ing form as noun) और infinitive (to + verb) sentence में noun की तरह काम करते हैं — verb choose करने से meaning change हो सकती है।",
+          "examples": "Example:\nGerund as subject: Swimming is good exercise.\nGerund after preposition: She is good at dancing.\nInfinitive as subject: To learn English takes time.\n\nLike vs love + gerund/infinitive:\nI like reading. | I want to read.\n\nRules:\n- enjoy, avoid, finish, mind → usually gerund after: He finished writing.\n- want, decide, hope, plan → usually infinitive: She decided to leave.\n- Some verbs both: start reading / start to read."
+        },
+        {
+          "title": "Noun Clauses",
+          "body": "Noun clause whole sentence में noun की job करता है — that, what, whether, who introduce कर सकते हैं।",
+          "examples": "Example:\nSubject: What she said surprised everyone.\nObject: I know that he is honest.\nAfter preposition: We talked about whether the plan would work.\n\nCompare:\nNoun: honesty | Noun phrase: her honesty | Noun clause: that she was honest\n\nRules:\n- that-clause often object: She believes that he will come.\n- Question word clauses: I don't know where he lives.\n- whether/if: Tell me whether you agree."
+        },
+        {
+          "title": "Quantifiers with Nouns",
+          "body": "Some, any, many, much, few, little, a lot of — countable vs uncountable के साथ correct quantifier choose करो।",
+          "examples": "Example:\nCountable: many books, a few friends, several options\nUncountable: much water, a little time, some advice\nBoth: a lot of people, a lot of money\n\nWrong: much students | Correct: many students\nWrong: few water | Correct: little water\n\nRules:\n- some = affirmative | any = questions/negatives (usually)\n- a few = some (positive) | few = almost none\n- a little = some amount | little = almost none"
+        },
+        {
+          "title": "Noun Identification Drills",
+          "body": "हर sentence में nouns underline करो — type (proper/common/collective/material/abstract) label करो।",
+          "examples": "Drill 1:\nThe team celebrated victory with joy in Mumbai.\nteam (collective), victory (abstract), joy (abstract), Mumbai (proper)\n\nDrill 2 — Fix errors:\nWrong: She gave me many informations.\nCorrect: She gave me a lot of information.\n\nDrill 3 — Plural:\nchild → children | tooth → teeth | phenomenon → phenomena\n\nDrill 4 — Countable or not?\nnews (uncountable) | chair (countable) | homework (uncountable)"
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Grammar Reference: Nouns",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/nouns"
+        },
+        {
+          "title": "Grammarly — A Complete Guide to Nouns",
+          "url": "https://www.grammarly.com/blog/nouns/"
+        },
+        {
+          "title": "Purdue OWL — Using Nouns Correctly",
+          "url": "https://owl.purdue.edu/owl/general_writing/grammar/nouns/index.html"
+        }
+      ]
+    },
+    "pronoun": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Pronoun noun की जगह लेता है ताकि repetition न हो — antecedent (जिस noun की जगह ले) से number और person match करना ज़रूरी है।",
+          "examples": "Example:\nWithout pronoun: Ravi met Ravi's friend.\nWith pronoun: Ravi met his friend.\n\nShe is a doctor. They work at the hospital.\n\nRules:\n- Pronoun का reference clear होना चाहिए — reader को पता हो \"she\" कौन है।\n- Hindi में gender ज़्यादा flexible है; English में he/she/they carefully choose करो।"
+        },
+        {
+          "title": "Personal Pronouns",
+          "body": "Subject forms verb से पहले; object forms verb या preposition के बाद आते हैं।",
+          "examples": "Example:\nSubject: I, you, he, she, it, we, they\nObject: me, you, him, her, it, us, them\n\nShe sings well. (subject)\nThe teacher called him. (object)\nWe invited them to dinner.\n\nRules:\n- दो subjects के बीच \"I\" last आता है: You and I are friends. (not I and you)\n- After preposition object form: between you and me (not I).\n- it = things/animals; they plural के लिए people या things दोनों।"
+        },
+        {
+          "title": "Possessive Pronouns",
+          "body": "Possessive adjectives noun से पहले (my book); possessive pronouns अकेले stand करते हैं (The book is mine)।",
+          "examples": "Example:\nAdjective + noun: This is her book. | Their house is big.\nPronoun alone: This book is hers. | That house is theirs.\n\nits (possessive) vs it's (it is) — बहुत common mistake!\n\nRules:\n- hers, theirs, ours में apostrophe नहीं।\n- its = belonging to it | it's = it is या it has.\n- my/mine, your/yours — adjective noun के साथ, pronoun अकेला।"
+        },
+        {
+          "title": "Demonstrative Pronouns",
+          "body": "this/these (near) और that/those (far) — singular/plural match करो।",
+          "examples": "Example:\nNear: This is my pen. These are my notes.\nFar: That was a great movie. Those were expensive shoes.\n\nAs adjective: This book is interesting. (this + noun)\n\nRules:\n- this/that = singular | these/those = plural.\n- Distance physical हो सकती है या conversation/time में (that day, this week).\n- Those who work hard succeed. (those = people — relative sense)"
+        },
+        {
+          "title": "Reflexive and Relative Pronouns",
+          "body": "Reflexive subject को वापस point करते हैं; relative noun describe करने वाले clause introduce करते हैं।",
+          "examples": "Example:\nReflexive: She taught herself to cook. | They enjoyed themselves.\nRelative: The woman who called is my aunt.\nThe book that I borrowed is due tomorrow.\n\nwho = people | which = things | that = both (restrictive clauses)\n\nRules:\n- myself, yourself — subject के साथ match: I did it myself.\n- who vs whom: whom object position में (formal).\n- Don't use myself instead of me: Ravi and I went. (not Ravi and myself)"
+        },
+        {
+          "title": "Pronoun Agreement",
+          "body": "Pronoun antecedent के number और gender से match करे — vague reference से reader confuse होता है।",
+          "examples": "Example:\nCorrect: Each student must bring their ID. (modern inclusive)\nCorrect: The students finished their projects.\n\nVague: When Priya met Ananya, she was happy. — कौन happy थी?\nClear: Priya was happy when she met Ananya.\n\nRules:\n- Plural antecedent → plural pronoun: The dogs wagged their tails.\n- Everyone, someone → singular they/their acceptable in modern English.\n- Antecedent sentence में पहले आए, फिर pronoun।"
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Grammar Reference: Pronouns",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/pronouns"
+        },
+        {
+          "title": "EnglishClub — Pronouns Guide",
+          "url": "https://www.englishclub.com/grammar/pronouns.htm"
+        },
+        {
+          "title": "Khan Academy — The Pronoun (Grammar Course)",
+          "url": "https://www.khanacademy.org/humanities/grammar/parts-of-speech-the-pronoun"
+        }
+      ]
+    },
+    "verb": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Verb action, event, या state of being express करता है — हर complete sentence में कम से कम एक verb होना चाहिए।",
+          "examples": "Example:\nAction: The children run in the park.\nState: She feels tired.\n\nVerbs tense और subject के हिसाब से form change करते हैं: run / runs / ran / running.\n\nRules:\n- Predicate का heart verb है।\n- Base form, past, past participle याद करो — irregular list important है।"
+        },
+        {
+          "title": "Action Verbs",
+          "body": "Physical या mental activity दिखाते हैं — run, write, think, build, learn।",
+          "examples": "Example:\nPhysical: He kicks the ball.\nMental: She understands the lesson.\nOngoing: They are building a new school.\n\nTest: \"What did X do?\" से action verb identify होता है।\n\nRules:\n- बहुत से action verbs transitive हैं — direct object ले सकते हैं।\n- Mental verbs भी action category में आते हैं English grammar में।"
+        },
+        {
+          "title": "Linking Verbs",
+          "body": "Subject को description या rename से connect करते हैं — be, seem, become, feel, look, sound, taste, smell।",
+          "examples": "Example:\nBe: She is a nurse.\nSeem: The problem seems difficult.\nSensory: The soup smells delicious.\n\nRules:\n- Linking verb के बाद adjective आता है, adverb नहीं: She looks happy. (not happily)\n- Linking verb action नहीं दिखाता — state या condition.\n- become, grow, turn भी linking हो सकते हैं: The sky turned dark."
+        },
+        {
+          "title": "Subject-Verb Agreement",
+          "body": "Singular subject → singular verb; plural subject → plural verb — बीच के words confuse मत करो।",
+          "examples": "Example:\nSingular: The dog runs fast.\nPlural: The dogs run fast.\nTricky: The list of items is on the desk. (subject = list, not items)\n\nRules:\n- he/she/it + simple present verb + s: She runs, It works.\n- Prepositional phrase ignore करके subject ढूँढो: One of the students is absent.\n- Neither...nor → verb second subject के साथ match: Neither he nor they are ready."
+        },
+        {
+          "title": "Helping Verbs",
+          "body": "Auxiliary verbs (be, have, do, will, can, must) main verb के साथ tenses, questions, negatives बनाते हैं।",
+          "examples": "Example:\nPerfect: She has finished her work.\nQuestion: Do you understand?\nModal: You must wear a helmet.\nFuture: They will arrive soon.\n\nRules:\n- Modals (can, must, should) के बाद base verb — no to: She can swim. (not can to swim)\n- do/does/did simple tenses के questions/negatives में।\n- has/have/had + past participle perfect tenses के लिए।"
+        },
+        {
+          "title": "Transitive and Intransitive Verbs",
+          "body": "Transitive verb direct object लेता है; intransitive नहीं — कुछ verbs दोनों तरह use होते हैं।",
+          "examples": "Example:\nTransitive: He wrote a letter. (letter = object)\nIntransitive: The baby cried. (no object needed)\nBoth: She eats. / She eats rice.\n\nRules:\n- Verb के बाद \"what?\" या \"whom?\" → transitive with object.\n- No object possible → intransitive: sleep, arrive, happen.\n- Agreement rules सब verb types पर same apply होते हैं।"
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Grammar Reference: Verbs",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/verbs"
+        },
+        {
+          "title": "Grammarly — What Is a Verb?",
+          "url": "https://www.grammarly.com/blog/verb/"
+        },
+        {
+          "title": "EnglishClub — Verbs Guide",
+          "url": "https://www.englishclub.com/grammar/verbs.htm"
+        }
+      ]
+    },
+    "adjective": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Adjective noun या pronoun को describe या modify करता है — size, color, age, opinion, material वगैरह बताता है।",
+          "examples": "Example:\nThe red car is fast.\nShe has a beautiful voice.\n\nAdjectives answer: What kind? Which one? How many?\n\nRules:\n- English में adjective usually noun से पहले आता है (unlike Hindi post-position)।\n- Multiple adjectives एक natural order follow करते हैं।"
+        },
+        {
+          "title": "Descriptive Adjectives",
+          "body": "Qualities add करते हैं — tall, happy, cold, intelligent, wooden — reader को picture clear होती है।",
+          "examples": "Example:\nThe old house stood on a quiet street.\nHe gave an honest answer.\nThree happy children played outside.\n\nRules:\n- Opinion adjectives (lovely, nice) size से पहले: a lovely big garden.\n- Number adjectives order में पहले या बाद में specific position: three large boxes.\n- Proper adjectives capital: Indian food, French wine."
+        },
+        {
+          "title": "Comparative and Superlative",
+          "body": "दो चीज़ों की तुलना comparative (-er / more); तीन या ज़्यादा की superlative (-est / most)।",
+          "examples": "Example:\nComparative: This book is longer than that one.\nSuperlative: She is the smartest student in class.\n\nIrregular: good→better→best | bad→worse→worst | far→farther/further→furthest\n\nRules:\n- Short adjectives: -er/-est (tall, taller, tallest).\n- Long adjectives: more/most (interesting, more interesting, most interesting).\n- than comparative के बाद; the superlative से पहले।"
+        },
+        {
+          "title": "Adjective Order",
+          "body": "कई adjectives एक साथ आए तो order: opinion → size → age → shape → color → origin → material → purpose + noun।",
+          "examples": "Example:\nA beautiful small old round red Italian wooden dining table.\n\nNatural: a lovely big house\nUnnatural: a red big house (size usually color से पहले)\n\nRules:\n- सब adjectives को \"and\" से noun से पहले मत जोड़ो।\n- General rule याद करो — native speakers भी intuition से करते हैं।\n- दो adjectives enough हैं ज़्यादा तर sentences के लिए।"
+        },
+        {
+          "title": "Predicate Adjectives",
+          "body": "Linking verb के बाद subject describe करते हैं — noun से पहले नहीं आते।",
+          "examples": "Example:\nThe food tastes spicy.\nHe seems confident.\nThe children grew tired after the game.\n\nWrong: She feels happily. | Correct: She feels happy.\n\nRules:\n- Linking verb + adjective (not adverb for description of subject).\n- taste, smell, look, feel, sound — sensory linking verbs.\n- Predicate adjective subject को modify करता है, verb को नहीं।"
+        },
+        {
+          "title": "Common Adjective Errors",
+          "body": "Double comparative, adjective/adverb confusion, और -ed/-ing adjective mix-up common mistakes हैं।",
+          "examples": "Example:\nWrong: more better | Correct: better\nWrong: He speaks English good. | Correct: He speaks English well. (adverb modifies verb)\n\nI am bored (मैं feel कर रहा) vs The movie is boring (movie cause करती है)।\n\nRules:\n- -ed = person की feeling | -ing = cause of feeling.\n- Adjectives modify nouns; adverbs modify verbs, adjectives, other adverbs.\n- very + adjective OK; very + adverb भी: very quickly."
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Grammar Reference: Adjectives",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/adjectives"
+        },
+        {
+          "title": "Purdue OWL — Adjectives and Adjective Clauses",
+          "url": "https://owl.purdue.edu/owl/general_writing/grammar/adjectives/index.html"
+        },
+        {
+          "title": "Grammarly — What Is an Adjective?",
+          "url": "https://www.grammarly.com/blog/adjectives/"
+        }
+      ]
+    },
+    "punctuation": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Punctuation meaning clear करती है, ideas अलग करती है, और pauses दिखाती है — गलत comma पूरा meaning बदल सकता है।",
+          "examples": "Example:\nLet's eat, Grandma! (Grandma को बुला रहे हो)\nLet's eat Grandma! (completely different — dangerous meaning!)\n\nMain marks: . ? ! , ' \" : ; —\n\nRules:\n- Punctuation reader की speed और understanding guide करती है।\n- Formal writing में consistent style follow करो (US vs UK थोड़े rules different)।"
+        },
+        {
+          "title": "Periods, Question Marks, and Exclamation Marks",
+          "body": "Statements period से; direct questions ? से; strong emotion ! से — formal में exclamation कम use करो।",
+          "examples": "Example:\nStatement: The meeting starts at nine.\nQuestion: Are you coming to the meeting?\nExclamation: What a great idea!\n\nIndirect question (no ?): She asked whether I was coming.\n\nRules:\n- Formal text में multiple !!! avoid करो।\n- Every statement end mark चाहिए।\n- Question word order change होता है indirect में।"
+        },
+        {
+          "title": "Commas",
+          "body": "Lists, clauses, introductory phrases, और extra information के लिए — comma splice से बचो।",
+          "examples": "Example:\nList: We bought apples, oranges, and grapes.\nIntro: After the exam, we celebrated.\nNon-essential: My brother, who lives in Pune, is visiting.\n\nComma splice (wrong): I was tired, I went to bed.\nFixed: I was tired, so I went to bed. OR I was tired. I went to bed.\n\nRules:\n- Oxford comma (and से पहले) optional पर lists clear करती है।\n- Dependent clause पहले → comma: When I arrived, she left.\n- Essential info में comma नहीं: The student who studied passed."
+        },
+        {
+          "title": "Apostrophes",
+          "body": "Possession (Sarah's bag) और contractions (don't = do not) — simple plurals के लिए apostrophe नहीं।",
+          "examples": "Example:\nSingular possessive: Sarah's bag\nPlural possessive: the students' books (s के बाद ')\nContraction: it's = it is | its = possessive\n\nWrong: two cat's | Correct: two cats\n\nRules:\n- its vs it's — top mistake for learners.\n- Plural ending in s: add ' after s (teachers' room).\n- Decades: 1990s (no apostrophe for plural years)."
+        },
+        {
+          "title": "Quotation Marks and Colons",
+          "body": "Direct speech और short work titles quotes में; colon lists या explanation introduce करता है।",
+          "examples": "Example:\nSpeech: She said, \"I will be late.\"\nColon list: Bring three items: a pen, paper, and ID.\nExplanation: He had one goal: to finish the marathon.\n\nRules:\n- US English: periods और commas quotes के अंदर।\n- Colon से पहले complete sentence होना चाहिए।\n- Wrong: The ingredients include: flour and sugar. (verb के बाद directly colon नहीं)"
+        },
+        {
+          "title": "Semicolons and Dashes",
+          "body": "Semicolon related independent clauses जोड़ता है; dash emphasis या extra info के लिए comma से ज़्यादा strong।",
+          "examples": "Example:\nSemicolon: The storm passed; the sun came out.\nDash: Three skills — reading, writing, and speaking — are essential.\nComplex list: I visited Delhi, India; Paris, France; and Tokyo, Japan.\n\nRules:\n- Semicolon जब clauses related हों पर अलग भी चल सकें।\n- Formal essays में dash overuse मत करो।\n- Semicolon list items में जब items के अंदर comma हो।"
+        }
+      ],
+      "resources": [
+        {
+          "title": "BBC Learning English — Punctuation in Writing",
+          "url": "https://www.bbc.co.uk/learningenglish/english/course/eiam/unit-1/session-2"
+        },
+        {
+          "title": "Purdue OWL — Punctuation Rules",
+          "url": "https://owl.purdue.edu/owl/general_writing/punctuation/index.html"
+        },
+        {
+          "title": "Grammarly — Punctuation Guide",
+          "url": "https://www.grammarly.com/blog/punctuation/"
+        }
+      ]
+    },
+    "articles": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "तीन articles: a, an, the — noun से पहले आते हैं; Hindi में direct equivalent नहीं, इसलिए यह common challenge है।",
+          "examples": "Example:\nIndefinite: I saw a dog in the park. (कोई भी dog)\nDefinite: The dog was friendly. (वही specific dog)\n\nAn apple a day keeps the doctor away.\n\nRules:\n- a/an = indefinite, non-specific.\n- the = definite, specific या already known.\n- Articles सिर्फ singular countable के साथ a/an; the सब types के साथ।"
+        },
+        {
+          "title": "A vs An",
+          "body": "Consonant sound से पहले a, vowel sound से पहले an — spelling नहीं, pronunciation matter करती है।",
+          "examples": "Example:\na book, a university (yoo- sound = consonant)\nan hour (silent h), an umbrella, an honest person\n\nWrong: a apple | Correct: an apple\n\nRules:\n- an hour, an MBA (M sounds like em = vowel sound).\n- a European, a one-way street (consonant sound).\n- Acronyms: pronunciation से decide — an FBI agent (eff = vowel sound)."
+        },
+        {
+          "title": "When to Use The",
+          "body": "जब reader को पता हो कौनसी चीज़, unique चीज़, या पहले mention हुई चीज़ हो।",
+          "examples": "Example:\nSpecific: Please close the door. (वो door)\nUnique: the sun, the moon, the president (context में)\nSecond mention: I bought a phone. The phone is new.\n\nRules:\n- Superlative के साथ: the best student.\n- General plural without the: Dogs are loyal.\n- Musical instruments: She plays the piano."
+        },
+        {
+          "title": "When Not to Use Articles",
+          "body": "Plural या uncountable general statements, proper nouns, languages, meals, और institutions के लिए often no article।",
+          "examples": "Example:\nLanguage: She speaks Hindi. (no article)\nGeneral: Life is beautiful.\nSpecific life: The life of a soldier is hard.\n\nWrong: I need an advice. | Correct: I need some advice.\n\nRules:\n- People/cities usually no the: Ravi, Mumbai (not the Mumbai).\n- Meals: have breakfast, eat lunch (no article).\n- by + transport: by bus, by train (no the)."
+        },
+        {
+          "title": "Articles with Jobs and Nationalities",
+          "body": "Singular countable job title के साथ a/an ज़रूरी; nationality adjective usually no article।",
+          "examples": "Example:\nJob: He is a doctor. | She is an engineer.\nNationality: She is Indian. (adjective, no article)\n\nWrong: She is teacher. | Correct: She is a teacher.\nPlural jobs: They are teachers. (no article)\n\nRules:\n- a/an singular countable profession के लिए।\n- the + nationality noun = people group: the French, the Japanese.\n- Generic: A teacher needs patience. (any teacher)"
+        },
+        {
+          "title": "Common Article Errors",
+          "body": "Articles जहाँ चाहिए वहाँ छोड़ देना या जहाँ नहीं चाहिए वहाँ लगाना — fixed phrases याद करो।",
+          "examples": "Example:\nWrong: She goes to the school every day. (institution)\nCorrect: She goes to school.\n\nWrong: I am good in English.\nCorrect: I am good at English. (preposition, not article — but related!)\n\nFixed phrases: at home, in bed, in prison, by car\n\nRules:\n- some advice, some information — uncountable, no a.\n- the + adjective = group: the rich, the poor.\n- Names of most countries no the: India, France (exceptions: the UK, the USA)."
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Grammar Reference: Articles",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/articles"
+        },
+        {
+          "title": "EnglishClub — Articles (a, an, the)",
+          "url": "https://www.englishclub.com/grammar/articles.htm"
+        },
+        {
+          "title": "Khan Academy — The Article (Grammar Course)",
+          "url": "https://www.khanacademy.org/humanities/grammar/parts-of-speech-the-article"
+        }
+      ]
+    },
+    "prepositions": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Prepositions time, place, direction, या manner का relation दिखाते हैं — noun/pronoun को sentence से connect करते हैं।",
+          "examples": "Example:\nPlace: The book is on the table.\nTime: We meet at noon.\nDirection: She walked to the store.\n\nCommon: in, on, at, by, with, for, to, from, about, between, among\n\nRules:\n- Preposition के बाद noun या pronoun (object of preposition).\n- Hindi से direct translate मत करो — collocation याद करो।"
+        },
+        {
+          "title": "In, On, At — Place",
+          "body": "In = enclosed/large area; on = surface; at = specific point या address।",
+          "examples": "Example:\nin: the room, India, the car, the box\non: the wall, the floor, Main Street, page 5\nat: the door, the station, 42 Oak Lane, home\n\nRules:\n- in the corner (room) vs on the corner (street intersection).\n- at home / in the house — दोनों चल सकते हैं context से।\n- on TV, on the internet, on a bus (British also in a bus)."
+        },
+        {
+          "title": "In, On, At — Time",
+          "body": "In = longer periods; on = days/dates; at = clock time और specific moments।",
+          "examples": "Example:\nin: March, 2024, the morning, the 1990s\non: Monday, 15 August, my birthday, Christmas Day\nat: 5 p.m., night, the moment, noon\n\nRules:\n- in the morning BUT at night (fixed phrases).\n- on weekend (US) vs at the weekend (UK).\n- on time = punctual | in time = before deadline."
+        },
+        {
+          "title": "Common Preposition Pairs",
+          "body": "Verbs और adjectives specific prepositions माँगते हैं — units की तरह याद करो।",
+          "examples": "Example:\ndepend on, listen to, arrive at/in, agree with, afraid of, interested in\nmarried to, good at, famous for, different from/than\n\nWrong: depend from | Correct: depend on\nWrong: listen music | Correct: listen to music\n\nRules:\n- arrive at small place (station), arrive in city/country (Delhi, India).\n- discuss something (no preposition) — NOT discuss about.\n- explain something to someone (not explain someone)."
+        },
+        {
+          "title": "Prepositions of Movement",
+          "body": "To = toward; from = origin; into/onto/through/across/along path और direction बताते हैं।",
+          "examples": "Example:\nto school, from Delhi to Mumbai\ninto the room (movement inside), in the room (static)\nthrough the tunnel, across the bridge, along the river\n\nRules:\n- go to destination (not go in school for daily attendance).\n- into = movement; in = position.\n- onto = movement to surface; on = on surface already."
+        },
+        {
+          "title": "Phrasal Verbs and Common Errors",
+          "body": "Verb + preposition/particle (give up, look after) — meaning अलग words से अलग हो सकती है।",
+          "examples": "Example:\ngive up = quit | look after = take care of | turn on = activate\nput off = postpone | run out of = finish supply\n\nWrong: I am good in English. | Correct: I am good at English.\nWrong: discuss about | Correct: discuss\n\nRules:\n- Phrasal verbs spoken English में बहुत common.\n- Separable phrasal verbs: turn off the light / turn the light off.\n- Inseparable: look after the baby (not look the baby after)."
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — Prepositions and Particles",
+          "url": "https://learnenglish.britishcouncil.org/grammar/english-grammar-reference/prepositions-and-particles"
+        },
+        {
+          "title": "EnglishClub — Prepositions List and Guide",
+          "url": "https://www.englishclub.com/grammar/prepositions.htm"
+        },
+        {
+          "title": "Purdue OWL — Prepositions and Prepositional Phrases",
+          "url": "https://owl.purdue.edu/owl/general_writing/grammar/prepositions/index.html"
+        }
+      ]
+    },
+    "workbook": {
+      "sections": [
+        {
+          "title": "Review Checklist",
+          "body": "सारे core topics एक बार revise करो — जो confidently explain कर सको, tick करो।",
+          "examples": "Checklist:\n1. Subject और predicate identify कर सकता हूँ?\n2. Verb tenses consistently use करता हूँ?\n3. Nouns को 5 types में classify कर सकता हूँ (Proper, Common, Collective, Material, Abstract)?\n4. Pronouns antecedent से match करते हैं?\n5. Subject-verb agreement सही है?\n6. Adjective order और comparative/superlative सही?\n7. Commas, apostrophes, end marks correct?\n8. a/an/the सही जगह?\n9. Preposition collocations (good at, depend on) याद हैं?\n\nTip: एक session में एक topic — depth > speed."
+        },
+        {
+          "title": "Mixed Error Correction",
+          "body": "हर sentence पढ़ो, error ढूँढो, सही लिखो — कोई भी topic से error हो सकता है।",
+          "examples": "Example:\nWrong: She go to school every day.\nCorrect: She goes to school every day. (subject-verb agreement)\n\nWrong: Its a sunny day.\nCorrect: It's a sunny day. (contraction)\n\nWrong: He is good in mathematics.\nCorrect: He is good at mathematics. (preposition)\n\nWrong: I saw a elephant.\nCorrect: I saw an elephant. (article)\n\nTip: ज़ोर से पढ़ो — कान से error पहले पकड़ा जाता है।"
+        },
+        {
+          "title": "Sentence Building Practice",
+          "body": "दिए words से correct sentence बनाओ — tense, articles, और word order ध्यान से।",
+          "examples": "Example:\nWords: she / read / interesting / book / every / night\nAnswer: She reads an interesting book every night.\n\nWords: they / play / football / in / park / yesterday\nAnswer: They played football in the park yesterday.\n\nWords: Ravi / and / Priya / finish / their / homework\nAnswer: Ravi and Priya finished their homework.\n\nRules:\n- Adjectives noun से पहले।\n- Countable singular के लिए article check करो।\n- Time word से tense decide करो।"
+        },
+        {
+          "title": "Tense and Pronoun Drill",
+          "body": "Sentences को different tense में rewrite करो या nouns को pronouns से replace करो।",
+          "examples": "Example:\nPresent → Past: Ravi eats breakfast at seven. → Ravi ate breakfast at seven.\n\nNoun → Pronoun: Priya finished Priya's homework. → Priya finished her homework.\n\nPast → Future: They visited their grandparents. → They will visit their grandparents.\n\nRules:\n- Pronoun number/gender antecedent से match।\n- Time words tense change में help करते हैं।\n- Possessive pronoun apostrophe rule याद रखो।"
+        },
+        {
+          "title": "Preposition and Article Fill-in",
+          "body": "Blank में सही preposition या article (a, an, the, या none) choose करो।",
+          "examples": "Example:\nShe arrived ___ the airport at 6 p.m. → at\nHe needs ___ honest answer. → an\n___ water in this bottle is cold. → The\nThey are interested ___ music. → in\nShe goes ___ school by bus. → to (no article before school as institution)\n\nRules:\n- at = specific time/place point.\n- an = vowel sound; the = known/specific noun.\n- by bus, at home — fixed no-article phrases."
+        },
+        {
+          "title": "Extended Writing Challenge",
+          "body": "अपनी daily routine पर 5–7 sentences लिखो — कम से कम 3 tenses, 2 prepositions, 1 comparative, सही articles।",
+          "examples": "Sample:\nEvery morning I wake up at six. Yesterday I woke up late because my alarm did not ring. I am trying to become an early riser. Breakfast is simpler than dinner. I walk to the bus stop and read a book on the way. Tomorrow I will start a new grammar course.\n\nSelf-check after writing:\n- हर sentence complete है? (subject + verb)\n- Tense consistent within same time frame?\n- Proper nouns capitalized?\n- Read aloud — natural लगता है?\n\nRules:\n- एक sentence = एक main idea.\n- Proofread for articles और prepositions last."
+        },
+        {
+          "title": "Topic-wise Mini Tests",
+          "body": "Har topic ke baad 5-minute mini test — Sentence, Tense, Noun mix se confidence build hoti hai।",
+          "examples": "Mini Test A — Sentence:\n1. Identify subject: The children played in the garden.\n2. Fix fragment: Because it was raining hard.\n3. Combine: She studied. She passed.\n\nMini Test B — Tense:\n1. Present perfect: I ___ (live) here since 2019.\n2. Past continuous: They ___ (watch) TV when I called.\n3. Fix: He will goes tomorrow.\n\nMini Test C — Noun:\n1. Type of \"honesty\": abstract\n2. Plural of child: children\n3. Fix: many furnitures"
+        },
+        {
+          "title": "Mixed Error Spotting Set B",
+          "body": "Har line mein ek ya zyada errors ho sakte hain — type identify karke correct sentence likho।",
+          "examples": "1. She don't likes to reading books.\n→ She doesn't like to read books.\n\n2. I have went to Delhi last summer.\n→ I went to Delhi last summer.\n\n3. The informations on the table are useful.\n→ The information on the table is useful.\n\n4. He is good in mathematics since childhood.\n→ He has been good at mathematics since childhood.\n\n5. Each of the students have submitted their work.\n→ Each of the students has submitted their work."
+        },
+        {
+          "title": "Fill in the Blanks — Mixed Grammar",
+          "body": "Articles, prepositions, tenses, aur pronouns ek saath practice karo — exam-style blanks।",
+          "examples": "1. ___ honest person always speaks ___ truth. → An, the\n2. She has been waiting ___ two hours. → for\n3. If it ___ tomorrow, we will stay home. → rains\n4. Neither Ravi nor his friends ___ ready yet. → are\n5. I look forward ___ meeting you. → to\n6. This is ___ best movie I have ever seen. → the\n7. He gave ___ useful advice. → some (no plural)"
+        },
+        {
+          "title": "Paragraph Correction",
+          "body": "Poorly written paragraph ko revise karo — grammar, punctuation, aur flow improve karo।",
+          "examples": "Original:\nyesterday i go to market. i buyed many vegetable and return home late because the bus was delay.\n\nRevised:\nYesterday I went to the market. I bought many vegetables and returned home late because the bus was delayed.\n\nChecklist while revising:\n- Capitalize sentence start and proper nouns\n- Match tense (yesterday → past)\n- Irregular past: buy → bought\n- Subject-verb: bus was delayed (singular)"
+        },
+        {
+          "title": "Weekly Study Plan",
+          "body": "Consistent short sessions grammar retain karne ke liye best hain — 30 minutes daily recommended।",
+          "examples": "Week plan:\nMon — Sentence structure + 10 sentence writing\nTue — Tenses (present + past) + error fixes\nWed — Nouns (types + countability) + drills\nThu — Pronouns + articles\nFri — Verbs + subject-verb agreement\nSat — Workbook mixed exercises\nSun — Review weak topics + read aloud 1 page English\n\nTip: Notebook mein sirf galat sentences likho — repeat mistakes kam honge.\n\nProgress tracker:\n□ I can explain 5 noun types\n□ I can fix 8/10 tense errors\n□ I write 5 error-free sentences daily"
+        },
+        {
+          "title": "Self-Assessment Scorecard",
+          "body": "Har section ke baad khud ko rate karo 1–5 — 3 se neeche wale topics dubara padho।",
+          "examples": "Rate yourself (1 = weak, 5 = strong):\nSentence structure: ___ / 5\nTenses: ___ / 5\nNouns: ___ / 5\nPronouns: ___ / 5\nVerbs & agreement: ___ / 5\nArticles: ___ / 5\nPrepositions: ___ / 5\nPunctuation: ___ / 5\n\nGoal: Sab topics par kam se kam 4/5 within 4 weeks.\n\nAction: Lowest score wale topic ka lesson dubara padho, phir Workbook mini test repeat karo."
+        }
+      ],
+      "resources": [
+        {
+          "title": "British Council — English Levels and Practice",
+          "url": "https://learnenglish.britishcouncil.org/english-levels"
+        },
+        {
+          "title": "Khan Academy — Grammar Course (Full Curriculum)",
+          "url": "https://www.khanacademy.org/humanities/grammar"
+        },
+        {
+          "title": "EnglishClub — Grammar Quizzes and Exercises",
+          "url": "https://www.englishclub.com/grammar/"
+        }
+      ]
+    }
+  }
+}
