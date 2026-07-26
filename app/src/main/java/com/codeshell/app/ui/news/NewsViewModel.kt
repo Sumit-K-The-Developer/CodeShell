@@ -15,7 +15,7 @@ data class NewsUiState(
     val articles: List<NewsArticle> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val currentCategory: String = "general",
+    val currentCategory: String = "top",
     val currentRegion: NewsRegion = NewsRegion.INDIA,
 )
 
@@ -28,12 +28,16 @@ class NewsViewModel(
 
     fun fetchNews(categoryId: String, region: NewsRegion) {
         viewModelScope.launch {
+            val categoryChanged =
+                _uiState.value.currentCategory != categoryId ||
+                    _uiState.value.currentRegion != region
             _uiState.update {
                 it.copy(
                     isLoading = true,
                     error = null,
                     currentCategory = categoryId,
                     currentRegion = region,
+                    articles = if (categoryChanged) emptyList() else it.articles,
                 )
             }
             val result = repository.fetchNews(categoryId, region)
@@ -51,6 +55,7 @@ class NewsViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            articles = emptyList(),
                             error = error.message ?: "Failed to load news.",
                         )
                     }
