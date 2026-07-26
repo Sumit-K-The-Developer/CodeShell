@@ -1,0 +1,329 @@
+{
+  "version": 2,
+  "topics": [
+    { "id": "python", "label": "Python", "shortLabel": "Py" },
+    { "id": "javascript", "label": "JavaScript", "shortLabel": "JS" },
+    { "id": "java", "label": "Java", "shortLabel": "Ja" },
+    { "id": "cpp", "label": "C++", "shortLabel": "C++" },
+    { "id": "kotlin", "label": "Kotlin", "shortLabel": "Kt" },
+    { "id": "html_css", "label": "HTML/CSS", "shortLabel": "H/C" },
+    { "id": "sql", "label": "SQL", "shortLabel": "SQL" },
+    { "id": "client_server", "label": "Client/Server", "shortLabel": "C/S" }
+  ],
+  "lessons": {
+    "python": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Python is a high-level, readable language created by Guido van Rossum in 1991. It uses indentation instead of braces and focuses on clear syntax, making it one of the most popular first languages worldwide.",
+          "examples": "# Python runs scripts, web apps, and notebooks\nprint(\"Welcome to Python\")"
+        },
+        {
+          "title": "Usage",
+          "body": "Python is used for web backends (Django, Flask, FastAPI), data science and AI, automation, scripting, and scientific computing.",
+          "examples": "# Common roles Python fills today:\n# - REST APIs and microservices\n# - Machine learning pipelines\n# - Data cleaning and dashboards"
+        },
+        {
+          "title": "Variables and types",
+          "body": "Variables store values. Python figures out the type from what you assign.",
+          "examples": "name = \"Alex\"\nage = 25\nis_student = True\nprice = 19.99\nprint(name, age, type(price))"
+        },
+        {
+          "title": "Lists, tuples, and loops",
+          "body": "Lists are mutable sequences; tuples are fixed. for and while iterate over data.",
+          "examples": "scores = [88, 92, 79]\nscores.append(95)\n\nfor score in scores:\n    print(score)\n\npoint = (10, 20)  # tuple — coordinates"
+        },
+        {
+          "title": "Dictionaries and sets",
+          "body": "Dicts map keys to values. Sets store unique items and support fast membership checks.",
+          "examples": "user = {\"name\": \"Alex\", \"age\": 25}\nprint(user[\"name\"])\n\nunique_tags = {\"python\", \"api\", \"backend\"}\nunique_tags.add(\"django\")"
+        },
+        {
+          "title": "Functions",
+          "body": "def creates reusable code. return sends a value back. Default parameters and type hints improve clarity.",
+          "examples": "def greet(person: str, excited: bool = False) -> str:\n    suffix = \"!\" if excited else \".\"\n    return f\"Hello, {person}{suffix}\"\n\nprint(greet(\"Alex\", excited=True))"
+        },
+        {
+          "title": "Conditionals and comprehensions",
+          "body": "if/elif/else branch logic. List comprehensions build lists in one expressive line.",
+          "examples": "status = \"adult\" if age >= 18 else \"minor\"\n\nsquares = [n * n for n in range(1, 6)]\nevens = [n for n in range(10) if n % 2 == 0]"
+        },
+        {
+          "title": "Modules and virtual environments",
+          "body": "Import modules to reuse code. pip installs packages; venv isolates project dependencies.",
+          "examples": "import math\nfrom datetime import date\n\nprint(math.sqrt(16))\nprint(date.today())\n\n# Terminal:\n# python -m venv .venv\n# pip install requests"
+        },
+        {
+          "title": "Classes and OOP basics",
+          "body": "class groups data and behavior. __init__ initializes instances; methods define behavior.",
+          "examples": "class Student:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\n    def describe(self):\n        return f\"{self.name} is {self.age}\"\n\ns = Student(\"Alex\", 25)\nprint(s.describe())"
+        },
+        {
+          "title": "Files and error handling",
+          "body": "with open(...) safely reads and writes files. try/except catches runtime errors gracefully.",
+          "examples": "try:\n    with open(\"notes.txt\", \"r\", encoding=\"utf-8\") as f:\n        content = f.read()\nexcept FileNotFoundError:\n    content = \"\"\n\nprint(content or \"No file yet\")"
+        }
+      ],
+      "resources": [
+        { "title": "Python Official Tutorial", "url": "https://docs.python.org/3/tutorial/" },
+        { "title": "Real Python", "url": "https://realpython.com/" }
+      ]
+    },
+    "javascript": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "JavaScript is the language of the web browser. Created in 1995, it adds interactivity to pages and, with Node.js, also powers servers and tools.",
+          "examples": "// JavaScript runs in every major browser\nconsole.log(\"Welcome to JavaScript\");"
+        },
+        {
+          "title": "Usage",
+          "body": "Front-end UIs use React, Vue, and Angular. Node.js builds APIs, real-time chat servers, and CLI tools.",
+          "examples": "// Common roles:\n// - Interactive websites and SPAs\n// - REST/GraphQL APIs\n// - Real-time apps"
+        },
+        {
+          "title": "Variables",
+          "body": "Use let for values that change and const for values that should not be reassigned.",
+          "examples": "let name = \"Alex\";\nconst age = 25;\nlet isStudent = true;"
+        },
+        {
+          "title": "Async with promises",
+          "body": "async functions return promises. await pauses until a promise settles.",
+          "examples": "async function loadProfile() {\n  const response = await fetch(\"/api/profile\");\n  return response.json();\n}"
+        }
+      ],
+      "resources": [
+        { "title": "MDN JavaScript Guide", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide" },
+        { "title": "javascript.info", "url": "https://javascript.info/" }
+      ]
+    },
+    "java": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Java is a statically typed language released in 1995. Its motto Write Once, Run Anywhere comes from the Java Virtual Machine (JVM).",
+          "examples": "public class Intro {\n  public static void main(String[] args) {\n    System.out.println(\"Welcome to Java\");\n  }\n}"
+        },
+        {
+          "title": "Usage",
+          "body": "Java powers enterprise backends, Android apps, banking systems, and big-data tools like Hadoop and Kafka.",
+          "examples": "// Common roles:\n// - Enterprise REST APIs (Spring Boot)\n// - Android mobile apps\n// - Banking platforms"
+        },
+        {
+          "title": "Classes and main",
+          "body": "Java is statically typed. Code lives in classes. The JVM starts at the main method.",
+          "examples": "String name = \"Alex\";\nint age = 25;\nString status = (age >= 18) ? \"adult\" : \"minor\";\nSystem.out.println(name + \" is \" + status);"
+        },
+        {
+          "title": "Methods and parameters",
+          "body": "Methods encapsulate behavior. Overloading allows same name with different parameter lists.",
+          "examples": "public static int add(int a, int b) {\n  return a + b;\n}\n\npublic static String greet(String name) {\n  return \"Hello, \" + name;\n}"
+        },
+        {
+          "title": "Collections",
+          "body": "ArrayList stores a growable list. HashMap maps keys to values. Generics add type safety.",
+          "examples": "ArrayList<String> tags = new ArrayList<>();\ntags.add(\"java\");\n\nHashMap<String, Integer> scores = new HashMap<>();\nscores.put(\"quiz\", 92);\nSystem.out.println(scores.get(\"quiz\"));"
+        },
+        {
+          "title": "Object-oriented programming",
+          "body": "Fields hold state; methods define behavior. private hides details; public exposes an API.",
+          "examples": "public class Student {\n  private final String name;\n  private int age;\n\n  public Student(String name, int age) {\n    this.name = name;\n    this.age = age;\n  }\n\n  public String describe() {\n    return name + \" is \" + age;\n  }\n}"
+        },
+        {
+          "title": "Inheritance and interfaces",
+          "body": "extends inherits from a parent class. implements defines a contract multiple classes can share.",
+          "examples": "interface Printable {\n  void print();\n}\n\nclass Report implements Printable {\n  public void print() {\n    System.out.println(\"Report ready\");\n  }\n}"
+        },
+        {
+          "title": "Exception handling",
+          "body": "try/catch handles runtime errors. finally runs cleanup. throw creates custom failure paths.",
+          "examples": "try {\n  int result = 10 / 0;\n} catch (ArithmeticException ex) {\n  System.out.println(\"Cannot divide by zero\");\n} finally {\n  System.out.println(\"Done\");\n}"
+        },
+        {
+          "title": "Streams and lambdas",
+          "body": "Java 8+ streams process collections declaratively. Lambdas shorten anonymous behavior.",
+          "examples": "List<Integer> nums = List.of(1, 2, 3, 4);\nint sum = nums.stream()\n    .filter(n -> n % 2 == 0)\n    .mapToInt(Integer::intValue)\n    .sum();\nSystem.out.println(sum);"
+        },
+        {
+          "title": "Build tools and projects",
+          "body": "Maven and Gradle manage dependencies and build lifecycle. Spring Boot accelerates REST APIs.",
+          "examples": "// Typical Gradle dependencies block:\n// implementation(\"org.springframework.boot:spring-boot-starter-web\")\n\n@RestController\nclass HelloController {\n  @GetMapping(\"/hello\")\n  String hello() { return \"Hello\"; }\n}"
+        }
+      ],
+      "resources": [
+        { "title": "Oracle Java Tutorials", "url": "https://docs.oracle.com/javase/tutorial/" },
+        { "title": "Baeldung Java Guides", "url": "https://www.baeldung.com/java-tutorial" }
+      ]
+    },
+    "cpp": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "C++ extends C with classes, templates, and the Standard Template Library (STL). It is compiled directly to fast native machine code.",
+          "examples": "#include <iostream>\n\nint main() {\n  std::cout << \"Welcome to C++\" << std::endl;\n  return 0;\n}"
+        },
+        {
+          "title": "Usage",
+          "body": "C++ is chosen when performance matters: game engines, operating systems, browsers, embedded devices, and trading systems.",
+          "examples": "// Common roles:\n// - Game engines and AAA titles\n// - Browser rendering engines\n// - OS kernels and drivers"
+        },
+        {
+          "title": "Types and output",
+          "body": "C++ requires explicit types. std::cout sends text to the console.",
+          "examples": "std::string name = \"Alex\";\nint age = 25;\nstd::cout << \"Hello, \" << name << std::endl;"
+        },
+        {
+          "title": "Vectors",
+          "body": "std::vector is a dynamic array from the standard library.",
+          "examples": "std::vector<int> scores = {88, 92, 79};\nscores.push_back(95);\nint sum = 0;\nfor (int v : scores) sum += v;"
+        }
+      ],
+      "resources": [
+        { "title": "Learn C++", "url": "https://www.learncpp.com/" },
+        { "title": "cppreference.com", "url": "https://en.cppreference.com/w/" }
+      ]
+    },
+    "kotlin": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Kotlin is a modern JVM language from JetBrains (2011). It is concise, null-safe, and fully interoperable with Java — the official language for Android app development.",
+          "examples": "fun main() {\n  println(\"Welcome to Kotlin\")\n}"
+        },
+        {
+          "title": "Usage",
+          "body": "Kotlin powers Android apps, server-side APIs (Ktor, Spring), multiplatform projects (KMP), and Gradle build scripts.",
+          "examples": "// Common roles:\n// - Android UI with Jetpack Compose\n// - Backend microservices on JVM\n// - Shared business logic across platforms"
+        },
+        {
+          "title": "val and var",
+          "body": "val is read-only; var can change. Types are inferred when obvious.",
+          "examples": "fun main() {\n  val name = \"Alex\"\n  var age = 25\n  val isStudent = true\n  age += 1\n  println(\"$name is $age years old\")\n}"
+        },
+        {
+          "title": "Functions and expressions",
+          "body": "fun declares functions. if/when are expressions that return values — less boilerplate than Java.",
+          "examples": "fun greet(name: String, excited: Boolean = false): String {\n  val suffix = if (excited) \"!\" else \".\"\n  return \"Hello, $name$suffix\"\n}\n\nfun status(age: Int) = when {\n  age < 13 -> \"child\"\n  age < 18 -> \"teen\"\n  else -> \"adult\"\n}"
+        },
+        {
+          "title": "Conditionals and loops",
+          "body": "Ranges like 1..5 include both ends. for iterates collections and ranges cleanly.",
+          "examples": "val status = if (age >= 18) \"adult\" else \"minor\"\nvar total = 0\nfor (n in 1..5) total += n\n\nval evens = (1..10).filter { it % 2 == 0 }"
+        },
+        {
+          "title": "Null safety",
+          "body": "?. safely calls on nullable values. ?: supplies a default. !! forces non-null (avoid in production).",
+          "examples": "val nickname: String? = null\nval display = nickname ?: name\nval length = nickname?.length ?: 0\nprintln(display)"
+        },
+        {
+          "title": "Collections",
+          "body": "listOf and mapOf create immutable collections. mutableListOf and mutableMapOf allow changes.",
+          "examples": "val tags = listOf(\"kotlin\", \"android\")\nval scores = mapOf(\"quiz\" to 92, \"lab\" to 88)\n\nval mutable = mutableListOf(1, 2, 3)\nmutable.add(4)"
+        },
+        {
+          "title": "Data classes",
+          "body": "data class auto-generates equals, hashCode, copy, and component functions.",
+          "examples": "data class Student(val name: String, val age: Int)\n\nval student = Student(name, age)\nval older = student.copy(age = age + 1)\nprintln(\"${student.name} -> ${older.age}\")"
+        },
+        {
+          "title": "Extension functions",
+          "body": "Add functions to existing types without inheritance — common in Kotlin standard library style.",
+          "examples": "fun String.firstWord(): String =\n  trim().substringBefore(' ')\n\nprintln(\"Hello Kotlin\".firstWord())  // Hello"
+        },
+        {
+          "title": "Coroutines overview",
+          "body": "suspend functions perform async work without blocking threads. launch and async structure concurrent tasks.",
+          "examples": "import kotlinx.coroutines.*\n\nsuspend fun loadProfile(): String {\n  delay(100) // simulate network\n  return \"Alex\"\n}\n\nfun main() = runBlocking {\n  val name = async { loadProfile() }.await()\n  println(name)\n}"
+        }
+      ],
+      "resources": [
+        { "title": "Kotlin Official Docs", "url": "https://kotlinlang.org/docs/home.html" },
+        { "title": "Kotlin Koans", "url": "https://kotlinlang.org/docs/koans.html" }
+      ]
+    },
+    "html_css": {
+      "sections": [
+        {
+          "title": "Document structure",
+          "body": "HTML describes page structure. head holds metadata; body holds visible content.",
+          "examples": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><title>Basics</title></head>\n<body><h1>Hello, Alex!</h1></body>\n</html>"
+        },
+        {
+          "title": "CSS styling",
+          "body": "CSS controls appearance. Selectors target elements, classes, or IDs.",
+          "examples": "body { font-family: sans-serif; margin: 2rem; }\n.card { padding: 1rem; border: 1px solid #ccc; }"
+        },
+        {
+          "title": "Forms and inputs",
+          "body": "Forms collect user input. label improves accessibility.",
+          "examples": "<form class=\"card\">\n  <label for=\"email\">Email</label>\n  <input id=\"email\" type=\"email\" required>\n</form>"
+        },
+        {
+          "title": "Flexbox layout",
+          "body": "Flexbox arranges items in a row or column with gap and alignment properties.",
+          "examples": ".toolbar {\n  display: flex;\n  gap: 0.75rem;\n  align-items: center;\n}"
+        }
+      ],
+      "resources": [
+        { "title": "MDN HTML Tutorial", "url": "https://developer.mozilla.org/en-US/docs/Learn/HTML" },
+        { "title": "MDN CSS Tutorial", "url": "https://developer.mozilla.org/en-US/docs/Learn/CSS" }
+      ]
+    },
+    "sql": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "SQL is the standard language for talking to relational databases. You describe what data you want; the engine decides how to fetch it.",
+          "examples": "-- SQL reads and writes rows in tables.\nSELECT 'Welcome to SQL' AS message;"
+        },
+        {
+          "title": "Usage",
+          "body": "Every major app stores structured data in PostgreSQL, MySQL, SQL Server, or SQLite.",
+          "examples": "-- Common roles:\n-- User profiles and authentication\n-- E-commerce orders\n-- Analytics reports"
+        },
+        {
+          "title": "Create a table",
+          "body": "Tables store rows of data. PRIMARY KEY uniquely identifies a row.",
+          "examples": "CREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  username TEXT NOT NULL,\n  age INTEGER\n);"
+        },
+        {
+          "title": "Joins",
+          "body": "JOIN combines rows from two tables using a related column.",
+          "examples": "SELECT users.username, posts.title\nFROM users\nINNER JOIN posts ON posts.user_id = users.id;"
+        }
+      ],
+      "resources": [
+        { "title": "SQLBolt", "url": "https://sqlbolt.com/" },
+        { "title": "W3Schools SQL", "url": "https://www.w3schools.com/sql/" }
+      ]
+    },
+    "client_server": {
+      "sections": [
+        {
+          "title": "Introduction",
+          "body": "Client/server architecture splits work between two roles: the client requests services and the server provides them over a network.",
+          "examples": "Client (browser or app)\n    |  HTTP request\n    v\nServer (API + database)\n    |  HTTP response\n    v\nClient renders the result"
+        },
+        {
+          "title": "Frontend and backend",
+          "body": "The frontend is what users see and interact with. The backend handles business logic, authentication, and data storage.",
+          "examples": "Frontend: React page, Android app screen\nBackend: REST API, database, auth service\nCommunication: HTTP + JSON"
+        },
+        {
+          "title": "Real-life projects",
+          "body": "Every major web and mobile product uses this pattern at scale.",
+          "examples": "Instagram app (client) -> Meta servers (backend)\nChrome (client) -> search and sync APIs\nUber app -> trip matching and payment servers"
+        },
+        {
+          "title": "Request and response",
+          "body": "A typical API call sends a method, headers, and optional body. The server returns a status code and data payload.",
+          "examples": "GET /api/users/48291\nAuthorization: Bearer <token>\n\nResponse 200:\n{ \"username\": \"48291\", \"status\": \"active\" }"
+        }
+      ],
+      "resources": [
+        { "title": "MDN Client-Server Overview", "url": "https://developer.mozilla.org/en-US/docs/Learn/Server-side/First_steps/Client-Server_overview" },
+        { "title": "REST API Tutorial", "url": "https://restfulapi.net/" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preNewsDebugBuild UP-TO-DATE
+> Task :app:mergeNewsDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateNewsDebugBuildConfig UP-TO-DATE
+> Task :app:checkNewsDebugAarMetadata UP-TO-DATE
+> Task :app:generateNewsDebugResValues UP-TO-DATE
+> Task :app:processNewsDebugGoogleServices UP-TO-DATE
+> Task :app:mapNewsDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateNewsDebugResources UP-TO-DATE
+> Task :app:mergeNewsDebugResources UP-TO-DATE
+> Task :app:packageNewsDebugResources UP-TO-DATE
+> Task :app:parseNewsDebugLocalResources UP-TO-DATE
+> Task :app:createNewsDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksNewsDebug UP-TO-DATE
+> Task :app:processNewsDebugMainManifest
+> Task :app:processNewsDebugManifest
+> Task :app:javaPreCompileNewsDebug UP-TO-DATE
+> Task :app:mergeNewsDebugShaders UP-TO-DATE
+> Task :app:compileNewsDebugShaders NO-SOURCE
+> Task :app:generateNewsDebugAssets UP-TO-DATE
+> Task :app:mergeNewsDebugAssets UP-TO-DATE
+> Task :app:compressNewsDebugAssets UP-TO-DATE
+> Task :app:checkNewsDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarNewsDebugFileDependencies UP-TO-DATE
+> Task :app:mergeNewsDebugStartupProfile UP-TO-DATE
+> Task :app:mergeExtDexNewsDebug UP-TO-DATE
+> Task :app:mergeLibDexNewsDebug UP-TO-DATE
+> Task :app:mergeNewsDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeNewsDebugNativeLibs UP-TO-DATE
+> Task :app:stripNewsDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningNewsDebug UP-TO-DATE
+> Task :app:writeNewsDebugAppMetadata UP-TO-DATE
+> Task :app:writeNewsDebugSigningConfigVersions UP-TO-DATE
+> Task :app:processNewsDebugManifestForPackage
+> Task :app:processNewsDebugResources
+> Task :app:compileNewsDebugKotlin
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/data/news/NewsRepository.kt:261:33 Type mismatch: inferred type is Date? but Date was expected
+
+> Task :app:compileNewsDebugJavaWithJavac UP-TO-DATE
+> Task :app:dexBuilderNewsDebug
+> Task :app:mergeNewsDebugGlobalSynthetics UP-TO-DATE
+> Task :app:processNewsDebugJavaRes UP-TO-DATE
+> Task :app:mergeNewsDebugJavaResource UP-TO-DATE
+> Task :app:mergeProjectDexNewsDebug
+> Task :app:packageNewsDebug
+> Task :app:createNewsDebugApkListingFileRedirect
+> Task :app:assembleNewsDebug
+
+BUILD SUCCESSFUL in 4m 29s
+40 actionable tasks: 11 executed, 29 up-to-date

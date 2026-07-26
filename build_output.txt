@@ -1,0 +1,31 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preCodingDebugBuild UP-TO-DATE
+> Task :app:generateCodingDebugBuildConfig UP-TO-DATE
+> Task :app:checkCodingDebugAarMetadata UP-TO-DATE
+> Task :app:generateCodingDebugResValues UP-TO-DATE
+> Task :app:processCodingDebugGoogleServices UP-TO-DATE
+> Task :app:mapCodingDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateCodingDebugResources UP-TO-DATE
+> Task :app:mergeCodingDebugResources UP-TO-DATE
+> Task :app:packageCodingDebugResources UP-TO-DATE
+> Task :app:parseCodingDebugLocalResources UP-TO-DATE
+> Task :app:createCodingDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksCodingDebug UP-TO-DATE
+> Task :app:processCodingDebugMainManifest UP-TO-DATE
+> Task :app:processCodingDebugManifest UP-TO-DATE
+> Task :app:processCodingDebugManifestForPackage UP-TO-DATE
+> Task :app:processCodingDebugResources UP-TO-DATE
+> Task :app:compileCodingDebugKotlin
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/ChatViewModel.kt:707:36 Parameter 'userId' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/ChatViewModel.kt:715:42 Unnecessary non-null assertion (!!) on a non-null receiver of type Timestamp
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/MessageBubbleContent.kt:147:5 Parameter 'isMine' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/MessageBubbleContent.kt:153:5 Parameter 'modifier' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultScreen.kt:100:5 Parameter 'onOpenChat' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt:74:27 Parameter 'items' is never used, could be renamed to _
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt:124:21 Variable 'mimeType' is never used
+
+BUILD SUCCESSFUL in 56s
+17 actionable tasks: 2 executed, 15 up-to-date

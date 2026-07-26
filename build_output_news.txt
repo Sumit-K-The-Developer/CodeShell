@@ -1,0 +1,42 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preNewsDebugBuild UP-TO-DATE
+> Task :app:mergeNewsDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateNewsDebugBuildConfig
+> Task :app:checkNewsDebugAarMetadata
+> Task :app:generateNewsDebugResValues
+> Task :app:processNewsDebugGoogleServices
+> Task :app:mapNewsDebugSourceSetPaths
+> Task :app:generateNewsDebugResources
+> Task :app:packageNewsDebugResources
+> Task :app:mergeNewsDebugResources
+> Task :app:createNewsDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksNewsDebug
+> Task :app:parseNewsDebugLocalResources
+> Task :app:processNewsDebugMainManifest
+> Task :app:processNewsDebugManifest
+> Task :app:javaPreCompileNewsDebug
+> Task :app:mergeNewsDebugShaders
+> Task :app:compileNewsDebugShaders NO-SOURCE
+> Task :app:generateNewsDebugAssets UP-TO-DATE
+> Task :app:mergeNewsDebugAssets
+> Task :app:compressNewsDebugAssets
+> Task :app:desugarNewsDebugFileDependencies
+> Task :app:mergeNewsDebugStartupProfile
+> Task :app:mergeNewsDebugJniLibFolders
+> Task :app:checkNewsDebugDuplicateClasses
+> Task :app:processNewsDebugManifestForPackage
+> Task :app:mergeNewsDebugNativeLibs
+> Task :app:mergeExtDexNewsDebug
+> Task :app:mergeLibDexNewsDebug
+> Task :app:validateSigningNewsDebug
+> Task :app:writeNewsDebugAppMetadata
+
+> Task :app:stripNewsDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libdatastore_shared_counter.so, libjingle_peerconnection_so.so.
+
+> Task :app:writeNewsDebugSigningConfigVersions
+> Task :app:processNewsDebugResources
+> Task :app:compileNewsDebugKotlin
