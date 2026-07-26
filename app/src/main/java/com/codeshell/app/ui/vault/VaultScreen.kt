@@ -1,0 +1,782 @@
+package com.codeshell.app.ui.vault
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import com.codeshell.app.R
+import com.codeshell.app.data.model.VaultItem
+import com.codeshell.app.ui.theme.EditorBackground
+import com.codeshell.app.ui.theme.EditorDefaultText
+import com.codeshell.app.ui.theme.TopBarBackground
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VaultScreen(
+    onNavigateBack: () -> Unit,
+    onOpenChat: (String) -> Unit,
+    onNavigateToHomeForVaultSend: (() -> Unit)? = null,
+) {
+    val viewModel: VaultViewModel = viewModel()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    var showSelectionMenu by remember { mutableStateOf(false) }
+    var showSendConfirmationDialog by remember { mutableStateOf(false) }
+    var pendingSendItem by remember { mutableStateOf<VaultItem?>(null) }
+
+    // Use PickMultipleVisualMedia so the system photo/video gallery opens
+    // (not a generic file manager).  This contract returns content URIs that
+    // already have read permission for the duration of the app process.
+    val galleryPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            // Take persistable permission so background threads can read the files
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {
+                    // Some providers don't support persistable permission
+                }
+            }
+            viewModel.saveToVaultFromUris(uris) {
+                // All items processed
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadItems()
+    }
+
+    BackHandler(enabled = uiState.selectionMode) {
+        viewModel.clearItemSelection()
+    }
+
+    fun performDelete(item: VaultItem) {
+        viewModel.deleteItem(item)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "Deleted ${item.fileName}",
+                actionLabel = "Undo",
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.loadItems()
+            }
+        }
+    }
+
+    Scaffold(
+        containerColor = EditorBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        when {
+                            uiState.selectionMode && uiState.selectedItems.isNotEmpty() ->
+                                "${uiState.selectedItems.size} selected"
+                            uiState.selectionMode -> "Select items"
+                            else -> "Vault"
+                        }
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        if (uiState.selectionMode) {
+                            viewModel.clearItemSelection()
+                        } else {
+                            onNavigateBack()
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
+                    }
+                },
+                actions = {
+                    if (uiState.selectionMode && uiState.selectedItems.isNotEmpty()) {
+                        Box {
+                            IconButton(onClick = { showSelectionMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = EditorDefaultText
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showSelectionMenu,
+                                onDismissRequest = { showSelectionMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Move to Gallery") },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        viewModel.moveSelectedToGallery()
+                                    },
+                                    enabled = !uiState.isExporting
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        viewModel.deleteSelectedItems()
+                                    },
+                                    enabled = !uiState.isExporting
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Cancel") },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        viewModel.clearItemSelection()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TopBarBackground,
+                    titleContentColor = EditorDefaultText,
+                    navigationIconContentColor = EditorDefaultText,
+                ),
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                     galleryPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                },
+                containerColor = EditorDefaultText.copy(alpha = 0.9f),
+                contentColor = EditorBackground
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add to Vault",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            if (uiState.saveProgress != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    LinearProgressIndicator(
+                        progress = { uiState.saveProgress!!.first.toFloat() / uiState.saveProgress!!.second },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp)
+                    )
+                }
+            }
+
+            when {
+                uiState.isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                uiState.items.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = EditorDefaultText.copy(alpha = 0.4f),
+                                modifier = Modifier.size(64.dp),
+                            )
+                            Text(
+                                text = "No media saved yet",
+                                color = EditorDefaultText.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            Text(
+                                text = "Tap + to add from gallery, or save media from chats",
+                                color = EditorDefaultText.copy(alpha = 0.4f),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        contentPadding = PaddingValues(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(uiState.items, key = { it.id }) { item ->
+                            VaultItemTile(
+                                item = item,
+                                viewModel = viewModel,
+                                selectionMode = uiState.selectionMode,
+                                selected = item.id in uiState.selectedItems,
+                                modifier = Modifier.aspectRatio(1f),
+                                onToggleSelection = { viewModel.toggleItemSelection(item) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    uiState.selectedItem?.let { item ->
+        VaultItemViewerDialog(
+            item = item,
+            viewModel = viewModel,
+            onDismiss = { viewModel.selectItem(null) },
+            onDelete = {
+                viewModel.selectItem(null)
+                performDelete(item)
+            },
+            onSend = {
+                viewModel.selectItem(null)
+                pendingSendItem = item
+                showSendConfirmationDialog = true
+            },
+            onMoveToGallery = {
+                viewModel.selectItem(null)
+                viewModel.moveToGallery(item)
+            }
+        )
+    }
+
+    if (showSendConfirmationDialog && pendingSendItem != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showSendConfirmationDialog = false
+                pendingSendItem = null
+            },
+            title = { Text("Send to Chat") },
+            text = {
+                Text("Send \"${pendingSendItem?.fileName}\" to a conversation?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSendConfirmationDialog = false
+                    PendingVaultSend.set(pendingSendItem?.id ?: return@TextButton)
+                    pendingSendItem = null
+                    onNavigateToHomeForVaultSend?.invoke()
+                }) {
+                    Text("Send")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showSendConfirmationDialog = false
+                    pendingSendItem = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    uiState.errorMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearError() },
+            title = { Text("Error") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearError() }) {
+                    Text("OK")
+                }
+            },
+        )
+    }
+
+    if (uiState.exportSuccess) {
+        LaunchedEffect(Unit) {
+            snackbarHostState.showSnackbar("Moved to gallery")
+            viewModel.clearError()
+        }
+    }
+}
+
+@Composable
+private fun VaultItemTile(
+    item: VaultItem,
+    viewModel: VaultViewModel,
+    selectionMode: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onToggleSelection: () -> Unit,
+) {
+    var thumbnail by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    var loading by remember(item.id) { mutableStateOf(true) }
+
+    LaunchedEffect(item.id) {
+        loading = true
+        val bytesResult = withContext(Dispatchers.IO) {
+            viewModel.getThumbnailBytes(item)
+        }
+        bytesResult.onSuccess { bytes ->
+            thumbnail = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+        loading = false
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .then(
+                if (selectionMode) {
+                    Modifier.clickable { onToggleSelection() }
+                } else {
+                    Modifier.clickable { viewModel.selectItem(item) }
+                }
+            )
+            .background(
+                when {
+                    selected -> EditorDefaultText.copy(alpha = 0.3f)
+                    else -> EditorDefaultText.copy(alpha = 0.08f)
+                }
+            ),
+    ) {
+        when {
+            loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            thumbnail != null -> {
+                androidx.compose.foundation.Image(
+                    bitmap = thumbnail!!.asImageBitmap(),
+                    contentDescription = item.fileName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = null,
+                        tint = EditorDefaultText.copy(alpha = 0.4f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+        if (item.isVideo) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    .padding(2.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Video",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VaultItemViewerDialog(
+    item: VaultItem,
+    viewModel: VaultViewModel,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onSend: () -> Unit,
+    onMoveToGallery: () -> Unit,
+) {
+    var loading by remember(item.id) { mutableStateOf(true) }
+    var bitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    var videoUri by remember(item.id) { mutableStateOf<String?>(null) }
+    var showOptionsMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(item.id) {
+        loading = true
+        val bytesResult = withContext(Dispatchers.IO) {
+            viewModel.getDecryptedBytes(item)
+        }
+        bytesResult.onSuccess { bytes ->
+            if (item.isImage) {
+                bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } else if (item.isVideo) {
+                val file = File(
+                    viewModel.getApplicationCacheDir(),
+                    "vault_view_${item.id}${item.extension}"
+                )
+                file.writeBytes(bytes)
+                videoUri = file.toURI().toString()
+            }
+        }
+        loading = false
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            when {
+                loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+                item.isImage && bitmap != null -> {
+                    ZoomableVaultImage(
+                        bitmap = bitmap!!,
+                        contentDescription = item.fileName,
+                    )
+                }
+                item.isVideo && videoUri != null -> {
+                    VaultVideoPlayer(
+                        videoUrl = videoUri!!,
+                    )
+                }
+                else -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Could not load media", color = Color.White)
+                    }
+                }
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+            ) {
+                IconButton(onClick = { showOptionsMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = Color.White,
+                    )
+                }
+                DropdownMenu(
+                    expanded = showOptionsMenu,
+                    onDismissRequest = { showOptionsMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Move to Gallery") },
+                        onClick = {
+                            showOptionsMenu = false
+                            onMoveToGallery()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Send to Chat") },
+                        onClick = {
+                            showOptionsMenu = false
+                            onSend()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            showOptionsMenu = false
+                            onDelete()
+                        }
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = item.fileName,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    IconButton(onClick = onSend) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send to chat",
+                            tint = Color.White,
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZoomableVaultImage(
+    bitmap: Bitmap,
+    contentDescription: String,
+) {
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
+        offset = Offset(
+            x = (offset.x + panChange.x).coerceIn(
+                -(bitmap.width * (scale - 1f)) / 2f,
+                (bitmap.width * (scale - 1f)) / 2f
+            ),
+            y = (offset.y + panChange.y).coerceIn(
+                -(bitmap.height * (scale - 1f)) / 2f,
+                (bitmap.height * (scale - 1f)) / 2f
+            ),
+        )
+    }
+
+    androidx.compose.foundation.Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            }
+            .transformable(state = transformState)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            scale = 2.5f
+                        }
+                    }
+                )
+            },
+    )
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun VaultVideoPlayer(
+    videoUrl: String,
+) {
+    val context = LocalContext.current
+    val player = remember(videoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    this.player = player
+                    useController = true
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        var isLoading by remember { mutableStateOf(true) }
+        DisposableEffect(player) {
+            val listener = object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    isLoading = playbackState == Player.STATE_BUFFERING
+                }
+            }
+            player.addListener(listener)
+            onDispose {
+                player.removeListener(listener)
+            }
+        }
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(48.dp),
+                color = Color.White,
+            )
+        }
+    }
+}
+
+object PendingVaultSend {
+    private var itemId: String? = null
+
+    fun set(id: String) {
+        itemId = id
+    }
+
+    fun consume(): String? {
+        val id = itemId
+        itemId = null
+        return id
+    }
+}

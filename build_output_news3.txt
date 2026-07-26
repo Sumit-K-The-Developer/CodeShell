@@ -1,0 +1,79 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preNewsDebugBuild UP-TO-DATE
+> Task :app:mergeNewsDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateNewsDebugBuildConfig UP-TO-DATE
+> Task :app:checkNewsDebugAarMetadata UP-TO-DATE
+> Task :app:generateNewsDebugResValues UP-TO-DATE
+> Task :app:processNewsDebugGoogleServices UP-TO-DATE
+> Task :app:mapNewsDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateNewsDebugResources UP-TO-DATE
+> Task :app:mergeNewsDebugResources UP-TO-DATE
+> Task :app:packageNewsDebugResources UP-TO-DATE
+> Task :app:parseNewsDebugLocalResources UP-TO-DATE
+> Task :app:createNewsDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksNewsDebug UP-TO-DATE
+> Task :app:processNewsDebugMainManifest UP-TO-DATE
+> Task :app:processNewsDebugManifest UP-TO-DATE
+> Task :app:processNewsDebugManifestForPackage UP-TO-DATE
+> Task :app:processNewsDebugResources UP-TO-DATE
+> Task :app:javaPreCompileNewsDebug UP-TO-DATE
+> Task :app:mergeNewsDebugShaders UP-TO-DATE
+> Task :app:compileNewsDebugShaders NO-SOURCE
+> Task :app:generateNewsDebugAssets UP-TO-DATE
+> Task :app:mergeNewsDebugAssets UP-TO-DATE
+> Task :app:compressNewsDebugAssets UP-TO-DATE
+> Task :app:checkNewsDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarNewsDebugFileDependencies UP-TO-DATE
+> Task :app:mergeNewsDebugStartupProfile UP-TO-DATE
+> Task :app:mergeExtDexNewsDebug UP-TO-DATE
+> Task :app:mergeLibDexNewsDebug UP-TO-DATE
+> Task :app:mergeNewsDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeNewsDebugNativeLibs UP-TO-DATE
+> Task :app:stripNewsDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningNewsDebug UP-TO-DATE
+> Task :app:writeNewsDebugAppMetadata UP-TO-DATE
+> Task :app:writeNewsDebugSigningConfigVersions UP-TO-DATE
+> Task :app:compileNewsDebugKotlin
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:22:39 'getter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:30:52 'getter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:73:33 'getter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:83:30 'setter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:88:30 'setter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:92:22 'setter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/CallAudioRouteController.kt:102:22 'setter for isSpeakerphoneOn: Boolean' is deprecated. Deprecated in Java
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/call/WebRtcCallEngine.kt:228:26 Parameter 'resultCode' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/data/repository/UserRepository.kt:195:53 Unchecked cast: Any? to List<String>
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/navigation/CodeShellNavHost.kt:134:13 Variable 'savedStateHandle' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/navigation/CodeShellNavHost.kt:198:17 Name shadowed: savedStateHandle
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:157:55 'StopScreenShare: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.StopScreenShare
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:159:55 'ScreenShare: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ScreenShare
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:269:5 Parameter 'colors' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:491:5 Parameter 'onRequestScreenShare' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:492:5 Parameter 'onStopScreenShare' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/call/CallOverlay.kt:635:45 'VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/ChatViewModel.kt:707:36 Parameter 'userId' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/ChatViewModel.kt:715:42 Unnecessary non-null assertion (!!) on a non-null receiver of type Timestamp
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/MessageBubbleContent.kt:147:5 Parameter 'isMine' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/chat/MessageBubbleContent.kt:153:5 Parameter 'modifier' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/home/HomeScreen.kt:678:5 Parameter 'onSend' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/news/NewsScreen.kt:238:29 Type mismatch: inferred type is Date? but Date was expected
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultScreen.kt:100:5 Parameter 'onOpenChat' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt:74:27 Parameter 'items' is never used, could be renamed to _
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt:124:21 Variable 'mimeType' is never used
+w: file:///C:/Users/sumit/AndroidStudioProjects/CodeShell/app/src/main/java/com/codeshell/app/util/MessageMediaCacheEvictor.kt:25:36 This declaration needs opt-in. Its usage should be marked with '@coil.annotation.ExperimentalCoilApi' or '@OptIn(coil.annotation.ExperimentalCoilApi::class)'
+
+> Task :app:compileNewsDebugJavaWithJavac
+> Task :app:dexBuilderNewsDebug
+> Task :app:mergeNewsDebugGlobalSynthetics
+> Task :app:processNewsDebugJavaRes
+> Task :app:mergeProjectDexNewsDebug
+> Task :app:mergeNewsDebugJavaResource
+> Task :app:packageNewsDebug
+> Task :app:createNewsDebugApkListingFileRedirect
+> Task :app:assembleNewsDebug
+
+BUILD SUCCESSFUL in 3m 19s
+40 actionable tasks: 10 executed, 30 up-to-date
