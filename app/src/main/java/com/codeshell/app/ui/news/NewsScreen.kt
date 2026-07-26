@@ -63,37 +63,51 @@ fun NewsScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (uiState.articles.isEmpty() && !uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = uiState.error ?: "No articles found. Try switching categories.",
-                    color = EditorDefaultText.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        } else {
-            androidx.compose.foundation.pager.VerticalPager(
-                state = androidx.compose.foundation.pager.rememberPagerState(
-                    initialPage = 0,
-                ) { uiState.articles.size },
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                pageSpacing = 20.dp,
-                key = { page -> uiState.articles.getOrNull(page)?.url ?: "page_$page" },
-            ) { page ->
-                val article = uiState.articles.getOrNull(page)
-                if (article != null) {
-                    NewsArticleCard(
-                        article = article,
-                        onFullArticleClick = { onArticleClick(article) },
-                        modifier = Modifier.fillMaxWidth(),
+        when {
+            uiState.isLoading && uiState.articles.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        color = EditorDefaultText,
+                        strokeWidth = 2.dp,
                     )
+                }
+            }
+            uiState.articles.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = uiState.error ?: "No articles found. Try switching categories.",
+                        color = EditorDefaultText.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            else -> {
+                androidx.compose.foundation.pager.VerticalPager(
+                    state = androidx.compose.foundation.pager.rememberPagerState(
+                        initialPage = 0,
+                    ) { uiState.articles.size },
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    pageSpacing = 20.dp,
+                    key = { page -> uiState.articles.getOrNull(page)?.url ?: "page_$page" },
+                ) { page ->
+                    val article = uiState.articles.getOrNull(page)
+                    if (article != null) {
+                        NewsArticleCard(
+                            article = article,
+                            onFullArticleClick = { onArticleClick(article) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -246,12 +260,20 @@ fun NewsArticleCard(
 }
 
 private fun formatDate(publishedAt: String): String {
-    return try {
-        val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
-        val outputFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-        val date = inputFormat.parse(publishedAt)
-        outputFormat.format(date)
-    } catch (e: Exception) {
-        publishedAt.take(10)
+    val patterns = listOf(
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ssX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "EEE, dd MMM yyyy HH:mm:ss zzz",
+    )
+    val outputFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+    for (pattern in patterns) {
+        try {
+            val date = SimpleDateFormat(pattern, Locale.US).parse(publishedAt) ?: continue
+            return outputFormat.format(date)
+        } catch (_: Exception) {
+            // try next
+        }
     }
+    return publishedAt.take(10)
 }

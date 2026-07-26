@@ -40,6 +40,7 @@ data class GnewsApiResponse(
     val articles: List<GnewsArticle> = emptyList(),
     val code: String? = null,
     val message: String? = null,
+    val errors: List<String>? = null,
 )
 
 @Serializable
