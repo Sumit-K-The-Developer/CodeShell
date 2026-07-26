@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="TopBarBackground">#263238</color>
+    <color name="EditorBackground">#1B1F23</color>
+    <color name="EditorDefaultText">#E0E0E0</color>
+    <color name="EditorGutter">#2D3748</color>
+    <color name="FabAccent">#4A90D9</color>
+    <color name="FabAccentSelected">#4A90D9</color>
+    <color name="NewsCardBackground">#252B33</color>
+    <color name="NewsCardBorder">#3A4452</color>
+</resources>

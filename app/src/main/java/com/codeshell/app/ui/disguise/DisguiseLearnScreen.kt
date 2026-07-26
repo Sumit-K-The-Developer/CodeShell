@@ -28,11 +28,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.R
 import com.codeshell.app.data.preferences.AppPreferences
+import com.codeshell.app.data.news.NewsArticle
+import com.codeshell.app.data.news.NewsRegion
+import com.codeshell.app.disguise.ShellFlavorConfigProvider
 import com.codeshell.app.ui.components.CodeShellTopBar
 import com.codeshell.app.ui.disguise.snippets.LearnManifest
+import com.codeshell.app.ui.news.NewsScreen
+import com.codeshell.app.ui.news.NewsViewModel
 import com.codeshell.app.ui.theme.EditorBackground
 import com.codeshell.app.ui.theme.EditorDefaultText
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -89,6 +95,19 @@ private fun DisguiseLearnContent(
     val pagerState = rememberPagerState(initialPage = initialPage) { topics.size }
     var lastSyncedPage by rememberSaveable { mutableIntStateOf(initialPage) }
 
+    // News flavor specific state
+    val isNewsFlavor = ShellFlavorConfigProvider.isNewsFlavor
+    var isInternational by rememberSaveable { mutableStateOf(false) }
+    val newsViewModel: NewsViewModel = viewModel()
+
+    // Fetch news when category or region changes
+    LaunchedEffect(selectedTopicId, isInternational, isNewsFlavor) {
+        if (isNewsFlavor) {
+            val region = if (isInternational) NewsRegion.INTERNATIONAL else NewsRegion.INDIA
+            newsViewModel.fetchNews(selectedTopicId, region)
+        }
+    }
+
     LaunchedEffect(selectedTopicId, topics) {
         val targetPage = topics.indexOfFirst { it.id == selectedTopicId }.coerceAtLeast(0)
         if (targetPage != pagerState.currentPage && targetPage != lastSyncedPage) {
@@ -122,6 +141,9 @@ private fun DisguiseLearnContent(
                                 appPreferences.recordSecretChipToggle(!secretChipDoubleTapEnabled)
                             }
                         },
+                        regionToggleChecked = if (isNewsFlavor) isInternational else null,
+                        onRegionToggleChange = if (isNewsFlavor) { checked -> isInternational = checked } else null,
+                        onNewsRefresh = if (isNewsFlavor) ({ newsViewModel.refresh() }) else null,
                     )
                     HorizontalDivider(color = EditorDefaultText.copy(alpha = 0.1f))
                     TopicTopBar(
@@ -134,34 +156,56 @@ private fun DisguiseLearnContent(
                 }
             },
         ) { innerPadding ->
-            HorizontalPager(
-                state = pagerState,
-                beyondBoundsPageCount = 0,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            ) { page ->
-                val topic = topics[page]
-                val lesson = manifest.lessonFor(topic.id)
-                if (lesson != null) {
-                    LearningContentView(
-                        lesson = lesson,
-                        topicId = topic.id,
-                        onOpenLink = { link ->
-                            openedUrl = link.url
-                            openedTitle = link.title
+            if (isNewsFlavor) {
+                HorizontalPager(
+                    state = pagerState,
+                    beyondBoundsPageCount = 0,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                ) {
+                    NewsScreen(
+                        viewModel = newsViewModel,
+                        onArticleClick = { article ->
+                            val url = article.url
+                            if (url != null) {
+                                openedUrl = url
+                                openedTitle = article.title
+                            }
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.lesson_unavailable),
-                            color = EditorDefaultText.copy(alpha = 0.7f),
+                }
+            } else {
+                    HorizontalPager(
+                        state = pagerState,
+                        beyondBoundsPageCount = 0,
+                        modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                ) { page ->
+                    val topic = topics[page]
+                    val lesson = manifest.lessonFor(topic.id)
+                    if (lesson != null) {
+                        LearningContentView(
+                            lesson = lesson,
+                            topicId = topic.id,
+                            onOpenLink = { link ->
+                                openedUrl = link.url
+                                openedTitle = link.title
+                            },
+                            modifier = Modifier.fillMaxSize(),
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.lesson_unavailable),
+                                color = EditorDefaultText.copy(alpha = 0.7f),
+                            )
+                        }
                     }
                 }
             }
@@ -181,4 +225,3 @@ private fun DisguiseLearnContent(
         }
     }
 }
-

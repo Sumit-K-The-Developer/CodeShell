@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
@@ -25,6 +26,7 @@ import com.codeshell.app.ui.disguise.DisguiseLearnScreen
 import com.codeshell.app.ui.home.HomeScreen
 import com.codeshell.app.ui.media.MediaViewerScreen
 import com.codeshell.app.ui.settings.SettingsScreen
+import com.codeshell.app.ui.vault.VaultScreen
 import com.codeshell.app.ui.util.SecureScreenEffect
 import com.codeshell.app.data.model.AiTutorEntrySource
 import com.codeshell.app.util.findActivity
@@ -128,6 +130,10 @@ fun CodeShellNavHost(
             )
         }
 
+        // Check for vaultSend flag in saved state handle and get the pending item ID
+        val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+        val pendingVaultSendId = com.codeshell.app.ui.vault.PendingVaultSend.consume()
+        
         composable(Routes.HOME) {
             HomeScreen(
                 onNavigateBack = {
@@ -152,6 +158,7 @@ fun CodeShellNavHost(
                 onTerminalRevoked = {
                     navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
                 },
+                vaultSendItemId = pendingVaultSendId,
             )
         }
 
@@ -250,6 +257,27 @@ fun CodeShellNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onSignedOut = navigateToLogin,
                 onInactivityTimeout = navigateToLearning,
+                onOpenVault = {
+                    navController.navigate(Routes.vault())
+                },
+            )
+        }
+
+        composable(Routes.VAULT) {
+            VaultScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenChat = { chatId ->
+                    navController.navigate(Routes.chat(chatId))
+                },
+                onNavigateToHomeForVaultSend = {
+                    navController.previousBackStackEntry?.savedStateHandle?.apply {
+                        set("vaultSend", true)
+                    }
+                    navController.navigate(Routes.home()) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
     }

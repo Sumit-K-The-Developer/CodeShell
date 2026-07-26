@@ -34,6 +34,11 @@ android {
             "CODESHELL_GROQ_API_KEY",
             "\"${localProperties.getProperty("CODESHELL_GROQ_API_KEY", "")}\"",
         )
+        buildConfigField(
+            "String",
+            "GNEWS_API_KEY",
+            "\"${localProperties.getProperty("GNEWS_API_KEY", "")}\"",
+        )
         buildConfigField("Boolean", "ALLOW_DEMO_CAPTURE", "false")
     }
 
@@ -50,6 +55,12 @@ android {
             buildConfigField("String", "SHELL_FLAVOR", "\"grammar\"")
             buildConfigField("String", "LESSON_ASSET", "\"lessons/default.json\"")
             buildConfigField("String", "LESSON_REMOTE_DOC", "\"lessons_grammar\"")
+        }
+        create("news") {
+            dimension = "shell"
+            buildConfigField("String", "SHELL_FLAVOR", "\"news\"")
+            buildConfigField("String", "LESSON_ASSET", "\"lessons/default.json\"")
+            buildConfigField("String", "LESSON_REMOTE_DOC", "\"lessons_news\"")
         }
     }
 
@@ -134,6 +145,7 @@ dependencies {
     implementation(libs.androidx.media3.effect)
     implementation(libs.stream.webrtc.android)
     implementation(libs.okhttp)
+    implementation(libs.jsoup)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

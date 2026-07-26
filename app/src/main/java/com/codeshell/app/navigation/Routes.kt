@@ -9,10 +9,12 @@ object Routes {
     const val MEDIA = "media/{type}"
     const val SETTINGS = "settings"
     const val AI_TUTOR = "ai_tutor/{topicId}?entrySource={entrySource}&welcomeDigits={welcomeDigits}&topicLabel={topicLabel}"
+    const val VAULT = "vault"
 
     fun chat(chatId: String) = "chat/$chatId"
     fun media(type: String) = "media/$type"
     fun home() = "home"
+    fun vault() = "vault"
     fun aiTutor(
         topicId: String,
         topicLabel: String,
@@ -34,6 +36,7 @@ fun String?.isTerminalRoute(): Boolean = when {
     startsWith("home") -> true
     startsWith("chat") -> true
     this == Routes.SETTINGS -> true
+    this == Routes.VAULT -> true
     startsWith("media") -> true
     this == Routes.LOGIN -> true
     this == Routes.SIGNUP -> true

@@ -587,6 +587,14 @@ class HomeViewModel(
         _uiState.update { it.copy(selectionMode = true, selectedChatIds = emptySet()) }
     }
 
+    fun enterSelectionModeForVaultSend() {
+        _uiState.update { it.copy(selectionMode = true, selectedChatIds = emptySet(), pendingVaultSend = true) }
+    }
+
+    fun clearVaultSendFlag() {
+        _uiState.update { it.copy(pendingVaultSend = false) }
+    }
+
     fun cancelSelection() {
         _uiState.update { it.copy(selectionMode = false, selectedChatIds = emptySet()) }
     }
@@ -696,4 +704,5 @@ data class HomeUiState(
     val onlineUserIds: Set<String> = emptySet(),
     val incomingCallsByChatId: Map<String, CallType> = emptyMap(),
     val profilePicturesEnabled: Boolean = false,
+    val pendingVaultSend: Boolean = false,
 )

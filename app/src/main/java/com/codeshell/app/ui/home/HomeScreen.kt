@@ -118,6 +118,8 @@ import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.util.MediaPreloadCache
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.findActivity
+import com.codeshell.app.ui.vault.VaultViewModel
+import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import coil.compose.AsyncImage
@@ -131,7 +133,9 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenAiTutor: (topicId: String, topicLabel: String, welcomeDigits: String, entrySource: String) -> Unit,
     onTerminalRevoked: () -> Unit,
+    vaultSendItemId: String? = null,
 ) {
+    val vaultViewModel: VaultViewModel = viewModel()
     val app = LocalContext.current.applicationContext as CodeShellApplication
     val context = LocalContext.current
     val activity = context.findActivity() as? MainActivity
@@ -158,6 +162,27 @@ fun HomeScreen(
 
     LaunchedEffect(activity?.shareOpenTick) {
         pendingSharedContent = PendingSharedContent.peek()
+    }
+
+    // Handle vault send flow - load vault items and enter selection mode when coming from vault
+    LaunchedEffect(vaultSendItemId) {
+        if (vaultSendItemId != null) {
+            vaultViewModel.loadItems()
+            viewModel.enterSelectionModeForVaultSend()
+        }
+    }
+
+    // Handle sending vault item when selection changes during vault send
+    LaunchedEffect(uiState.selectedChatIds, uiState.pendingVaultSend) {
+        if (uiState.pendingVaultSend && uiState.selectedChatIds.isNotEmpty()) {
+            val chatId = uiState.selectedChatIds.first()
+            vaultSendItemId?.let { itemId ->
+                // Load vault item and send to selected chat
+                vaultViewModel.sendVaultItemToChat(itemId, chatId)
+                viewModel.clearVaultSendFlag()
+            }
+            viewModel.cancelSelection()
+        }
     }
 
     TerminalInactivityEffect(
@@ -525,6 +550,10 @@ fun HomeScreen(
                 selectedCount = uiState.selectedChatIds.size,
                 enabled = uiState.selectedChatIds.isNotEmpty() && !uiState.isDeleting,
                 colors = listColors,
+                isVaultSendMode = uiState.pendingVaultSend,
+                onSend = {
+                    // Already handled in LaunchedEffect
+                },
                 onDelete = { showDeleteDialog = true },
             )
         }
@@ -646,7 +675,9 @@ private fun SessionSelectionBar(
     selectedCount: Int,
     enabled: Boolean,
     colors: ChatThemeColors,
+    onSend: () -> Unit = {},
     onDelete: () -> Unit,
+    isVaultSendMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -666,18 +697,30 @@ private fun SessionSelectionBar(
                 color = colors.text,
             )
             Spacer(modifier = Modifier.width(16.dp))
-            TextButton(
-                onClick = onDelete,
-                enabled = enabled,
-            ) {
+            if (isVaultSendMode) {
                 Text(
-                    text = stringResource(R.string.delete),
+                    text = "Send",
                     color = if (enabled) {
-                        MaterialTheme.colorScheme.error
+                        colors.accent
                     } else {
                         colors.mutedText
                     },
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+            } else {
+                TextButton(
+                    onClick = onDelete,
+                    enabled = enabled,
+                ) {
+                    Text(
+                        text = stringResource(R.string.delete),
+                        color = if (enabled) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            colors.mutedText
+                        },
+                    )
+                }
             }
         }
     }

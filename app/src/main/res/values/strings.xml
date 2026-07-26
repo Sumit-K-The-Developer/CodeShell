@@ -296,4 +296,10 @@
     <string name="ai_tutor_offline">No internet connection.</string>
     <string name="ai_tutor_no_api_key">AI tutor is not configured.</string>
     <string name="ai_tutor_lesson_hint">You can still read the %1$s lesson in the learning screen.</string>
+
+    <!-- Vault save foreground service -->
+    <string name="vault_save_notification_title">Saving to Vault</string>
+    <string name="vault_save_notification_desc">Saving media to your vault</string>
+    <string name="vault_save_channel">Vault saves</string>
+    <string name="vault_save_channel_desc">Background media saves to the vault</string>
 </resources>

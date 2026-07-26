@@ -22,13 +22,8 @@ object AiPromptBuilder {
         - If the user asks who made, built, or created this app or CodeShell, answer that Sumit K created it and briefly describe him as an AI coder, developer, and teacher.
     """.trimIndent()
 
-    fun systemPrompt(topicLabel: String, lesson: LearnLesson?, generic: Boolean = false): String {
-        if (generic || topicLabel.isBlank()) {
-            return genericSystemPrompt()
-        }
-
-        val flavorRules = if (BuildConfig.SHELL_FLAVOR == "grammar") {
-            """
+    private fun flavorRules(topicLabel: String): String = when (BuildConfig.SHELL_FLAVOR) {
+        "grammar" -> """
             You are a grammar tutor for the CodeShell learning app.
             Topic: $topicLabel.
             Explain concepts in Hinglish (a natural mix of Hindi and English in Roman script).
@@ -39,9 +34,21 @@ object AiPromptBuilder {
             $RESPONSE_LENGTH_RULES
 
             $CREATOR_CONTEXT
-            """.trimIndent()
-        } else {
-            """
+        """.trimIndent()
+
+        "news" -> """
+            You are a news assistant for the InLine News app.
+            Topic: $topicLabel.
+            Answer questions about current events, summarize news articles, and discuss news topics.
+            Keep answers clear, concise, and factual. Cite sources when available.
+            Prefer questions about news, current events, and general knowledge, but you may answer other questions when helpful.
+
+            $RESPONSE_LENGTH_RULES
+
+            $CREATOR_CONTEXT
+        """.trimIndent()
+
+        else -> """
             You are a coding tutor for the CodeShell learning app.
             Topic: $topicLabel.
             Explain in clear English. Use fenced code blocks with the appropriate language tag for examples.
@@ -52,15 +59,21 @@ object AiPromptBuilder {
             $RESPONSE_LENGTH_RULES
 
             $CREATOR_CONTEXT
-            """.trimIndent()
+        """.trimIndent()
+    }
+
+    fun systemPrompt(topicLabel: String, lesson: LearnLesson?, generic: Boolean = false): String {
+        if (generic || topicLabel.isBlank()) {
+            return genericSystemPrompt()
         }
 
+        val rules = flavorRules(topicLabel)
         val lessonContext = lesson?.let { compressLesson(it) }.orEmpty()
         return if (lessonContext.isBlank()) {
-            flavorRules
+            rules
         } else {
             """
-            $flavorRules
+            $rules
 
             Lesson reference (use this as ground truth when relevant):
             $lessonContext
@@ -68,34 +81,7 @@ object AiPromptBuilder {
         }
     }
 
-    private fun genericSystemPrompt(): String {
-        val flavorRules = if (BuildConfig.SHELL_FLAVOR == "grammar") {
-            """
-            You are a grammar tutor for the CodeShell learning app.
-            Explain concepts in Hinglish (a natural mix of Hindi and English in Roman script).
-            All example sentences and practice items must be in English.
-            Prefer grammar and language-learning questions, but you may answer general questions when helpful.
-            Keep answers clear, structured, and educational.
-
-            $RESPONSE_LENGTH_RULES
-
-            $CREATOR_CONTEXT
-            """.trimIndent()
-        } else {
-            """
-            You are a coding tutor for the CodeShell learning app.
-            Explain in clear English. Use fenced code blocks with the appropriate language tag for examples.
-            Prefer programming and computer-science questions, but you may answer general questions when helpful.
-            Keep answers clear, structured, and educational.
-            Code examples count toward the word limit — keep snippets minimal unless the user asks for more.
-
-            $RESPONSE_LENGTH_RULES
-
-            $CREATOR_CONTEXT
-            """.trimIndent()
-        }
-        return flavorRules
-    }
+    private fun genericSystemPrompt(): String = flavorRules("")
 
     private fun compressLesson(lesson: LearnLesson): String {
         val builder = StringBuilder()

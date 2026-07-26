@@ -102,6 +102,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onSignedOut: () -> Unit,
     onInactivityTimeout: () -> Unit = onNavigateBack,
+    onOpenVault: () -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as Application
     val context = LocalContext.current
@@ -451,6 +452,12 @@ fun SettingsScreen(
                     .bringIntoViewRequester(accountBringIntoViewRequester),
             ) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
+                    TextButton(
+                        onClick = onOpenVault,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Vault")
+                    }
                     TextButton(
                         onClick = { showDeleteAccountDialog = true },
                         modifier = Modifier.fillMaxWidth(),

@@ -4,4 +4,5 @@ interface ShellFlavorConfig {
     val highlightCodeExamples: Boolean
     val useFullTopicLabels: Boolean
     val useTabChipStyle: Boolean
+    val isNewsFlavor: Boolean
 }

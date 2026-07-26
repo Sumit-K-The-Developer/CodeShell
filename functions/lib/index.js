@@ -210,7 +210,7 @@ exports.deleteAccount = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Could not delete account");
     }
 });
-async function sendDisguisedPush(recipientId, chatId) {
+async function sendDisguisedPush(recipientId, chatId, messageId) {
     const userSnap = await db.collection("users").doc(recipientId).get();
     const token = userSnap.get("fcmToken");
     if (!token) {
@@ -221,6 +221,7 @@ async function sendDisguisedPush(recipientId, chatId) {
         token,
         data: {
             chatId,
+            messageId,
             type: "session_update",
         },
         android: {
@@ -265,7 +266,7 @@ exports.onMessageCreated = (0, firestore_1.onDocumentCreated)("chats/{chatId}/me
     if (!recipientId)
         return;
     try {
-        await sendDisguisedPush(recipientId, chatId);
+        await sendDisguisedPush(recipientId, chatId, messageId);
     }
     catch (error) {
         firebase_functions_1.logger.error("FCM send failed", { chatId, messageId, error });

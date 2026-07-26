@@ -7,13 +7,18 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,6 +36,7 @@ import com.codeshell.app.ui.theme.CodeShellTheme
 import com.codeshell.app.ui.version.VersionGateOverlay
 import com.codeshell.app.ui.version.VersionGateViewModel
 import com.codeshell.app.ui.version.rememberExitAppAction
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -90,6 +96,17 @@ class MainActivity : ComponentActivity() {
                 val exitApp = rememberExitAppAction()
                 val navController = rememberNavController()
 
+                var backPressedOnce by mutableStateOf(false)
+
+                BackHandler(enabled = versionState.canProceed) {
+                    if (backPressedOnce) {
+                        exitApp()
+                    } else {
+                        backPressedOnce = true
+                        Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (versionState.canProceed) {
                         CodeShellNavHost(
@@ -104,6 +121,13 @@ class MainActivity : ComponentActivity() {
                         onOpenStore = { versionGateViewModel.openStore(this@MainActivity) },
                         onExitApp = exitApp
                     )
+                }
+
+                LaunchedEffect(backPressedOnce) {
+                    if (backPressedOnce) {
+                        delay(2000)
+                        backPressedOnce = false
+                    }
                 }
             }
         }
@@ -198,6 +222,9 @@ class MainActivity : ComponentActivity() {
         private set
 
     var shareOpenTick by mutableIntStateOf(0)
+        private set
+
+    var vaultSendOpenTick by mutableIntStateOf(0)
         private set
 
     private fun shouldApplySecureExit(): Boolean =

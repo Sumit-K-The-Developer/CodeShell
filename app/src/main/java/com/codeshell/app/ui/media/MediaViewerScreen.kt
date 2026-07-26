@@ -14,11 +14,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -32,7 +33,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -59,13 +60,15 @@ import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.ui.theme.EditorBackground
 import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.ui.vault.VaultSaveState
+import com.codeshell.app.ui.vault.VaultSaveTracker
+import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.MediaPreloadCache
-import com.codeshell.app.util.SecureMediaSaver
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,9 +82,14 @@ fun MediaViewerScreen(
 ) {
     val type = MessageType.from(mediaType)
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val imageLoader = remember { MediaImageLoader.get(context) }
-    var saveMessage by remember { mutableStateOf<String?>(null) }
+    val app = context.applicationContext as android.app.Application
+    val vaultViewModel: VaultViewModel = viewModel(
+        factory = AndroidViewModelFactory(app)
+    )
+
+    // Observe the persistent save tracker (updated by VaultSaveService)
+    val saveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(chatId, messageId) {
         val resolvedChatId = chatId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -91,7 +99,9 @@ fun MediaViewerScreen(
     }
 
     fun saveMedia() {
-        if (mediaUrl.isBlank()) return
+        if (mediaUrl.isBlank()) {
+            return
+        }
         val safeName = fileName ?: when (type) {
             MessageType.IMAGE -> "image.jpg"
             MessageType.AUDIO -> "voice.m4a"
@@ -104,15 +114,12 @@ fun MediaViewerScreen(
             MessageType.VIDEO -> "video/mp4"
             else -> "application/octet-stream"
         }
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                SecureMediaSaver.saveToDownloads(context, mediaUrl, safeName, mime)
-            }
-            saveMessage = result.fold(
-                onSuccess = { context.getString(R.string.saved_to_device) },
-                onFailure = { it.message ?: context.getString(R.string.save_failed) }
-            )
-        }
+        vaultViewModel.saveToVault(mediaUrl, safeName, mime, chatId, messageId)
+    }
+
+    // Clear the tracker when the screen is first shown so stale state doesn't persist
+    LaunchedEffect(Unit) {
+        VaultSaveTracker.reset()
     }
 
     Scaffold(
@@ -139,11 +146,46 @@ fun MediaViewerScreen(
                 },
                 actions = {
                     if (mediaUrl.isNotBlank()) {
-                        IconButton(onClick = { saveMedia() }) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = stringResource(R.string.save_to_device)
-                            )
+                        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                            when (val state = saveState) {
+                                is VaultSaveState.Saving -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                                is VaultSaveState.Success -> {
+                                    // Show a brief success indicator
+                                    LaunchedEffect(state) {
+                                        delay(1500)
+                                        VaultSaveTracker.reset()
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = "Saved",
+                                        tint = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                    )
+                                }
+                                is VaultSaveState.Error -> {
+                                    LaunchedEffect(state) {
+                                        delay(2000)
+                                        VaultSaveTracker.reset()
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = "Save failed",
+                                        tint = androidx.compose.ui.graphics.Color(0xFFF44336)
+                                    )
+                                }
+                                else -> {
+                                    IconButton(onClick = { saveMedia() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Save,
+                                            contentDescription = "Save to Vault"
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 },
@@ -174,7 +216,34 @@ fun MediaViewerScreen(
                     MessageType.SYSTEM -> Unit
                 }
             }
-            saveMessage?.let { message ->
+
+            // Determinate progress bar at the bottom during saving
+            if (saveState is VaultSaveState.Saving) {
+                val progress = (saveState as VaultSaveState.Saving).progress
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = EditorDefaultText,
+                        trackColor = EditorDefaultText.copy(alpha = 0.3f)
+                    )
+                }
+            }
+
+            // Status message
+            val statusMessage = when (val state = saveState) {
+                is VaultSaveState.Saving -> "Saving…"
+                is VaultSaveState.Success -> "Saved to Vault"
+                is VaultSaveState.Error -> "Save failed: ${state.message}"
+                else -> null
+            }
+            statusMessage?.let { message ->
                 Text(
                     text = message,
                     color = EditorDefaultText,

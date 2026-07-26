@@ -114,6 +114,11 @@
             android:name=".call.CallForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera|mediaProjection" />
+
+        <service
+            android:name=".ui.vault.VaultSaveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

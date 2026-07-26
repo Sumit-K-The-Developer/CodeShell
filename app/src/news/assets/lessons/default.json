@@ -1,0 +1,87 @@
+{
+  "version": 2,
+  "topics": [
+    { "id": "top", "label": "Top Stories", "shortLabel": "Top" },
+    { "id": "world", "label": "World", "shortLabel": "Wrld" },
+    { "id": "business", "label": "Business", "shortLabel": "Biz" },
+    { "id": "technology", "label": "Technology", "shortLabel": "Tech" },
+    { "id": "entertainment", "label": "Entertainment", "shortLabel": "Ent" },
+    { "id": "sports", "label": "Sports", "shortLabel": "Sprt" },
+    { "id": "science", "label": "Science", "shortLabel": "Sci" },
+    { "id": "health", "label": "Health", "shortLabel": "Hlth" }
+  ],
+  "lessons": {
+    "top": {
+      "sections": [
+        {
+          "title": "Top Stories",
+          "body": "Latest breaking news and top stories from around the world.",
+          "examples": "Stay informed with the most important news of the day."
+        }
+      ]
+    },
+    "world": {
+      "sections": [
+        {
+          "title": "World News",
+          "body": "International news coverage from across the globe.",
+          "examples": "Global events shaping our world."
+        }
+      ]
+    },
+    "business": {
+      "sections": [
+        {
+          "title": "Business",
+          "body": "Markets, finance, and business news.",
+          "examples": "Economic insights and market updates."
+        }
+      ]
+    },
+    "technology": {
+      "sections": [
+        {
+          "title": "Technology",
+          "body": "Tech industry news, innovations, and digital trends.",
+          "examples": "The latest in technology and innovation."
+        }
+      ]
+    },
+    "entertainment": {
+      "sections": [
+        {
+          "title": "Entertainment",
+          "body": "Movies, music, TV, and celebrity news.",
+          "examples": "What's happening in entertainment."
+        }
+      ]
+    },
+    "sports": {
+      "sections": [
+        {
+          "title": "Sports",
+          "body": "Sports scores, updates, and analysis.",
+          "examples": "Follow your favorite teams and athletes."
+        }
+      ]
+    },
+    "science": {
+      "sections": [
+        {
+          "title": "Science",
+          "body": "Scientific discoveries and research breakthroughs.",
+          "examples": "Exploring the frontiers of science."
+        }
+      ]
+    },
+    "health": {
+      "sections": [
+        {
+          "title": "Health",
+          "body": "Health news, wellness tips, and medical updates.",
+          "examples": "Your source for health and wellness information."
+        }
+      ]
+    }
+  }
+}
