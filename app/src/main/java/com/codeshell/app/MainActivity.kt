@@ -27,6 +27,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.messaging.PendingChatNavigation
+import com.codeshell.app.messaging.PendingNewsArticle
 import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.messaging.SharedContent
 import com.codeshell.app.messaging.TerminalNotificationManager
@@ -190,6 +191,16 @@ class MainActivity : ComponentActivity() {
                 TerminalNotificationManager.clear(applicationContext, chatId, isCall = false)
             }
             learningOpenTick++
+        }
+
+        val newsUrl = intent.getStringExtra(TerminalNotificationManager.EXTRA_NEWS_ARTICLE_URL)
+        if (!newsUrl.isNullOrBlank()) {
+            intent.removeExtra(TerminalNotificationManager.EXTRA_NEWS_ARTICLE_URL)
+            val categoryId = intent.getStringExtra(TerminalNotificationManager.EXTRA_NEWS_CATEGORY_ID) ?: ""
+            val regionCc = intent.getStringExtra(TerminalNotificationManager.EXTRA_NEWS_REGION_CC) ?: ""
+            intent.removeExtra(TerminalNotificationManager.EXTRA_NEWS_CATEGORY_ID)
+            intent.removeExtra(TerminalNotificationManager.EXTRA_NEWS_REGION_CC)
+            PendingNewsArticle.set(newsUrl, categoryId, regionCc)
         }
     }
 
