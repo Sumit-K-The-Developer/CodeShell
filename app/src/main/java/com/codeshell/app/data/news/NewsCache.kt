@@ -6,6 +6,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 class NewsCache private constructor(private val cacheDir: File) {
     private val json = Json {
@@ -63,6 +64,61 @@ class NewsCache private constructor(private val cacheDir: File) {
                 }
             }
         } catch (_: Exception) { /* ignore */ }
+    }
+
+    /**
+     * Result of picking a random cached article. Carries the article plus the
+     * (categoryId, region) pair it lives in, so the caller can route the user
+     * straight to that article's page when the notification is tapped.
+     */
+    data class CachedArticleRef(
+        val article: NewsArticle,
+        val categoryId: String,
+        val region: NewsRegion,
+    )
+
+    /**
+     * Picks one random cached article (across all categories × regions),
+     * skipping expired entries. Returns null when the cache is empty.
+     */
+    fun randomArticle(): CachedArticleRef? {
+        return try {
+            val refs = collectArticleRefs()
+            if (refs.isEmpty()) return null
+            refs[Random.nextInt(refs.size)]
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Convenience: random headline only. */
+    fun randomHeadline(): String? = randomArticle()?.article?.title?.takeIf { it.isNotBlank() }
+
+    private fun collectArticleRefs(): List<CachedArticleRef> {
+        val files = cacheDir.listFiles { _, name -> name.endsWith(".json") } ?: return emptyList()
+        val refs = mutableListOf<CachedArticleRef>()
+        for (file in files) {
+            try {
+                val entry = json.decodeFromString<CacheEntry>(file.readText())
+                if (isExpired(entry)) continue
+                val (categoryId, region) = decodeFileName(file.name) ?: continue
+                entry.articles.forEach { a -> refs.add(CachedArticleRef(a, categoryId, region)) }
+            } catch (_: Exception) {
+                // skip unreadable/expired/corrupt file
+            }
+        }
+        return refs
+    }
+
+    /** Reverse the cacheFile name → (categoryId, region). */
+    private fun decodeFileName(name: String): Pair<String, NewsRegion>? {
+        val base = name.removeSuffix(".json")
+        val sep = base.lastIndexOf('_')
+        if (sep <= 0 || sep >= base.length - 1) return null
+        val categoryId = base.substring(0, sep)
+        val countryCode = base.substring(sep + 1)
+        val region = NewsRegion.entries.firstOrNull { it.countryCode == countryCode } ?: return null
+        return categoryId to region
     }
 
     private fun cacheFile(categoryId: String, region: NewsRegion): File {

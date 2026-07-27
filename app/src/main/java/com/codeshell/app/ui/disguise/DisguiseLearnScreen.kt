@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.R
+import com.codeshell.app.messaging.PendingNewsArticle
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.news.NewsArticle
 import com.codeshell.app.data.news.NewsRegion
@@ -98,7 +99,18 @@ private fun DisguiseLearnContent(
     // News flavor specific state
     val isNewsFlavor = ShellFlavorConfigProvider.isNewsFlavor
     var isInternational by rememberSaveable { mutableStateOf(false) }
+    var pendingArticleUrl by remember { mutableStateOf<String?>(null) }
     val newsViewModel: NewsViewModel = viewModel()
+
+    // Consume a deep-link article URL from a notification tap
+    LaunchedEffect(Unit) {
+        val pending = PendingNewsArticle.consume()
+        if (pending != null) {
+            selectedTopicId = pending.categoryId
+            isInternational = pending.regionCountryCode != "in"
+            pendingArticleUrl = pending.url
+        }
+    }
 
     // Fetch news when category or region changes
     LaunchedEffect(selectedTopicId, isInternational, isNewsFlavor) {
@@ -173,6 +185,7 @@ private fun DisguiseLearnContent(
                                 openedTitle = article.title
                             }
                         },
+                        initialArticleUrl = pendingArticleUrl,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

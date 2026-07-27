@@ -11,8 +11,10 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.codeshell.app.BuildConfig
 import com.codeshell.app.MainActivity
 import com.codeshell.app.R
+import com.codeshell.app.data.news.NewsCache
 import com.codeshell.app.receiver.NotificationDismissReceiver
 
 object TerminalNotificationManager {
@@ -22,6 +24,10 @@ object TerminalNotificationManager {
     const val EXTRA_OPEN_CHAT_ID = "extra_open_chat_id"
     const val EXTRA_OPEN_LEARNING = "extra_open_learning"
     const val EXTRA_NOTIFICATION_CHAT_ID = "extra_notification_chat_id_for_clear"
+    /** News flavor: deep-link URL of the article whose headline is shown. */
+    const val EXTRA_NEWS_ARTICLE_URL = "extra_news_article_url"
+    const val EXTRA_NEWS_CATEGORY_ID = "extra_news_category_id"
+    const val EXTRA_NEWS_REGION_CC = "extra_news_region_cc"
 
     private const val PREFS = "terminal_notifications"
     private const val CHANNEL_ID = "terminal_alerts"
@@ -33,11 +39,15 @@ object TerminalNotificationManager {
         val appContext = context.applicationContext
         ensureChannel(appContext)
         val count = incrementCount(appContext, chatId)
+        val flavored = newsFlavoredBody(appContext, R.string.terminal_alert_message_body, prefixLive = false)
         postNotification(
             context = appContext,
             chatId = chatId,
             isCall = false,
-            body = appContext.getString(R.string.terminal_alert_message_body),
+            body = flavored.body,
+            newsArticleUrl = flavored.articleUrl,
+            newsCategoryId = flavored.categoryId,
+            newsRegionCc = flavored.regionCc,
             count = count,
         )
     }
@@ -45,12 +55,52 @@ object TerminalNotificationManager {
     fun showCallNotification(context: Context, chatId: String) {
         val appContext = context.applicationContext
         ensureChannel(appContext)
+        val flavored = newsFlavoredBody(appContext, R.string.terminal_alert_call_body, prefixLive = true)
         postNotification(
             context = appContext,
             chatId = chatId,
             isCall = true,
-            body = appContext.getString(R.string.terminal_alert_call_body),
+            body = flavored.body,
+            newsArticleUrl = flavored.articleUrl,
+            newsCategoryId = flavored.categoryId,
+            newsRegionCc = flavored.regionCc,
             count = 1,
+        )
+    }
+
+    private data class FlavoredBody(
+        val body: String,
+        val articleUrl: String?,
+        val categoryId: String?,
+        val regionCc: String?,
+    )
+
+    /**
+     * News flavor surfaces a random cached news headline as the notification
+     * body instead of the disguised "snippet" string. For calls, the headline
+     * is prefixed with "LIVE ". Falls back to [fallbackRes] when the cache is
+     * empty (cold start) or when not running the news flavor.
+     */
+    private fun newsFlavoredBody(
+        context: Context,
+        fallbackRes: Int,
+        prefixLive: Boolean,
+    ): FlavoredBody {
+        if (BuildConfig.SHELL_FLAVOR != "news") {
+            return FlavoredBody(context.getString(fallbackRes), null, null, null)
+        }
+        val ref = runCatching { NewsCache.instance.randomArticle() }.getOrNull()
+        if (ref == null) {
+            return FlavoredBody(context.getString(fallbackRes), null, null, null)
+        }
+        val headline = ref.article.title?.takeIf { it.isNotBlank() }
+            ?: return FlavoredBody(context.getString(fallbackRes), null, null, null)
+        val body = if (prefixLive) "LIVE $headline" else headline
+        return FlavoredBody(
+            body = body,
+            articleUrl = ref.article.url,
+            categoryId = ref.categoryId,
+            regionCc = ref.region.countryCode,
         )
     }
 
@@ -76,6 +126,9 @@ object TerminalNotificationManager {
         chatId: String,
         isCall: Boolean,
         body: String,
+        newsArticleUrl: String?,
+        newsCategoryId: String?,
+        newsRegionCc: String?,
         count: Int,
     ) {
         val openIntent = Intent(context, MainActivity::class.java).apply {
@@ -85,6 +138,13 @@ object TerminalNotificationManager {
             } else {
                 putExtra(EXTRA_OPEN_LEARNING, true)
                 putExtra(EXTRA_NOTIFICATION_CHAT_ID, chatId)
+            }
+            // News flavor deep-link: route the user to the cached article
+            // whose headline appears in this notification.
+            if (!newsArticleUrl.isNullOrBlank()) {
+                putExtra(EXTRA_NEWS_ARTICLE_URL, newsArticleUrl)
+                putExtra(EXTRA_NEWS_CATEGORY_ID, newsCategoryId ?: "")
+                putExtra(EXTRA_NEWS_REGION_CC, newsRegionCc ?: "")
             }
         }
         val requestCode = notificationId(chatId, isCall)

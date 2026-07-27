@@ -21,6 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +55,7 @@ private val NewsCardBorder = Color(0xFF3A4452)
 fun NewsScreen(
     viewModel: NewsViewModel,
     onArticleClick: (NewsArticle) -> Unit,
+    initialArticleUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -59,6 +63,25 @@ fun NewsScreen(
     LaunchedEffect(Unit) {
         if (uiState.articles.isEmpty() && !uiState.isLoading) {
             viewModel.fetchNews(uiState.currentCategory, uiState.currentRegion)
+        }
+    }
+
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(
+        initialPage = 0,
+    ) { uiState.articles.size }
+
+    // Consume the deep-link URL once: scroll to the matching article
+    var consumedUrl by remember { mutableStateOf(initialArticleUrl) }
+    LaunchedEffect(initialArticleUrl) {
+        consumedUrl = initialArticleUrl
+    }
+    LaunchedEffect(consumedUrl, uiState.articles) {
+        if (consumedUrl != null && uiState.articles.isNotEmpty()) {
+            val index = uiState.articles.indexOfFirst { it.url == consumedUrl }
+            if (index >= 0) {
+                pagerState.animateScrollToPage(index)
+            }
+            consumedUrl = null
         }
     }
 
@@ -92,9 +115,7 @@ fun NewsScreen(
             }
             else -> {
                 androidx.compose.foundation.pager.VerticalPager(
-                    state = androidx.compose.foundation.pager.rememberPagerState(
-                        initialPage = 0,
-                    ) { uiState.articles.size },
+                    state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                     pageSpacing = 20.dp,

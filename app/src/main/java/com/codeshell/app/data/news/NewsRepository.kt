@@ -75,7 +75,7 @@ class NewsRepository(
     /**
      * Fetches news articles.
      * Priority: GNews API (fast, real descriptions) → RSS (slow, no descriptions) → enrichment.
-     * When [skipCache] is true (refresh), skips cache and fetches fresh.
+     * When [skipCache] is true (refresh), skips cache and fetches fresh.  
      */
     suspend fun fetchNews(
         categoryId: String,
