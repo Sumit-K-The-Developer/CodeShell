@@ -1,6 +1,7 @@
 package com.codeshell.app
 
 import android.app.Application
+import com.codeshell.app.data.news.NewsCache
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.repository.LessonRepository
 import com.codeshell.app.presence.PresenceCoordinator
@@ -25,6 +26,7 @@ class CodeShellApplication : Application() {
         enableFirestoreOfflinePersistence()
         lessonRepository = LessonRepository(this)
         PresenceCoordinator(this).register()
+        NewsCache.init(this)
         applicationScope.launch {
             val preferences = AppPreferences(applicationContext)
             preferences.applyDailySecretEntryResetIfDue()

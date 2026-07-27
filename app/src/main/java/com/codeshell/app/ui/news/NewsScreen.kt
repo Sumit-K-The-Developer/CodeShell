@@ -207,9 +207,20 @@ fun NewsArticleCard(
                 val sourceName = article.source?.name ?: "Unknown"
                 val publishedAt = article.publishedAt
                 val dateStr = publishedAt?.let { formatDate(it) } ?: ""
+                val feedTag = article.feedTag
 
                 Text(
-                    text = "$sourceName • $dateStr",
+                    text = buildString {
+                        append(sourceName)
+                        if (dateStr.isNotBlank()) {
+                            append(" • ")
+                            append(dateStr)
+                        }
+                        if (!feedTag.isNullOrBlank()) {
+                            append(" • ")
+                            append(feedTag)
+                        }
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = FabAccent,
                     fontWeight = FontWeight.Medium,
@@ -223,8 +234,6 @@ fun NewsArticleCard(
                         lineHeight = 36.sp,
                         color = EditorDefaultText,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
@@ -238,8 +247,10 @@ fun NewsArticleCard(
                     ) {
                         Text(
                             text = combinedText,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = EditorDefaultText.copy(alpha = 0.85f),
+                            maxLines = 40,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 } else {
@@ -252,7 +263,8 @@ fun NewsArticleCard(
                     color = EditorDefaultText.copy(alpha = 0.5f),
                     modifier = Modifier
                         .align(Alignment.End)
-                        .clickable { onFullArticleClick() },
+                        .clickable { onFullArticleClick() }
+                        .padding(top = 4.dp),
                 )
             }
         }

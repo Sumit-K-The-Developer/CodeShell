@@ -2,9 +2,11 @@ package com.codeshell.app.data.news
 
 import com.codeshell.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -43,7 +45,6 @@ class NewsRepository(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-    /** App category IDs → Google News section topic names. */
     private val categoryToGoogleTopic = mapOf(
         "top" to null,
         "general" to null,
@@ -58,7 +59,6 @@ class NewsRepository(
         "politics" to "NATION",
     )
 
-    /** App category IDs → GNews top-headlines categories. */
     private val categoryToGnews = mapOf(
         "top" to "general",
         "general" to "general",
@@ -74,49 +74,148 @@ class NewsRepository(
 
     /**
      * Fetches news articles.
-     * Primary: Google News RSS (no API key), enriched with publisher OG meta.
-     * Fallback: GNews.io API.
+     * Priority: GNews API (fast, real descriptions) → RSS (slow, no descriptions) → enrichment.
+     * When [skipCache] is true (refresh), skips cache and fetches fresh.
      */
     suspend fun fetchNews(
         categoryId: String,
         region: NewsRegion,
+        skipCache: Boolean = false,
     ): Result<List<NewsArticle>> = withContext(Dispatchers.IO) {
-        val rssResult = fetchFromRss(categoryId, region)
-        if (rssResult.isSuccess && !rssResult.getOrNull().isNullOrEmpty()) {
-            val articles = rssResult.getOrNull().orEmpty()
-            return@withContext Result.success(enrichArticles(articles))
+        if (!skipCache) {
+            val cached = runCatching { NewsCache.instance.loadAll(categoryId, region) }
+                .getOrNull()
+            if (!cached.isNullOrEmpty()) {
+                launchFresh { fetchAndCache(categoryId, region) }
+                return@withContext Result.success(cached)
+            }
         }
 
-        val gnewsResult = fetchFromGnews(categoryId, region)
-        if (gnewsResult.isSuccess && !gnewsResult.getOrNull().isNullOrEmpty()) {
-            return@withContext gnewsResult
+        fetchAndCache(categoryId, region)
+    }
+
+    /**
+     * Try GNews first (fast + real descriptions). Fall back to RSS.
+     * For RSS path, return immediately without blocking on publisher enrichment;
+     * enrichment runs in background and saves to cache for next visit.
+     *
+     * For the India region, both English and Hindi feeds are fetched and
+     * randomly interleaved so the user sees a mixed-language feed.
+     */
+    private suspend fun fetchAndCache(
+        categoryId: String,
+        region: NewsRegion,
+    ): Result<List<NewsArticle>> {
+        val variants = langVariants(region)
+
+        // --- GNews path (all language variants in parallel) ---
+        val gnewsResults = variants.map { v -> fetchFromGnews(categoryId, region, v.gnewsLang) }
+        val gnewsArticles = gnewsResults
+            .mapNotNull { it.getOrNull() }
+            .flatten()
+            .ifEmpty { null }
+
+        if (!gnewsArticles.isNullOrEmpty()) {
+            val merged = interleaveShuffle(gnewsArticles)
+            runCatching { NewsCache.instance.save(categoryId, region, merged) }
+            return Result.success(merged)
         }
 
-        gnewsResult.fold(
-            onSuccess = { Result.success(it) },
-            onFailure = {
-                val rssError = rssResult.exceptionOrNull()
-                Result.failure(
-                    IOException(
-                        "RSS: ${rssError?.message ?: "No articles"}" +
-                            " | Gnews: ${it.message ?: "Failed"}",
-                    ),
-                )
-            },
+        // --- RSS path (all language variants in parallel) ---
+        val rssResults = variants.map { v -> fetchFromRss(categoryId, region, v.hl, v.ceid) }
+        val rssArticles = rssResults
+            .mapNotNull { it.getOrNull() }
+            .flatten()
+            .ifEmpty { null }
+
+        if (!rssArticles.isNullOrEmpty()) {
+            val merged = interleaveShuffle(rssArticles)
+            runCatching { NewsCache.instance.save(categoryId, region, merged) }
+            launchFresh { enrichAndPersist(categoryId, region, merged) }
+            return Result.success(merged)
+        }
+
+        // --- Both failed ---
+        val firstRssError = rssResults.firstOrNull()?.exceptionOrNull()
+        val firstGnewsError = gnewsResults.firstOrNull()?.exceptionOrNull()
+        return Result.failure(
+            IOException(
+                "RSS: ${firstRssError?.message ?: "No articles"}" +
+                    " | Gnews: ${firstGnewsError?.message ?: "Failed"}",
+            ),
         )
+    }
+
+    /**
+     * Language variants to fetch per region.
+     * India: English + Hindi. International: English only.
+     */
+    private fun langVariants(region: NewsRegion): List<LangVariant> {
+        return when (region) {
+            NewsRegion.INDIA -> listOf(
+                LangVariant(hl = "en-IN", ceid = "IN:en", gnewsLang = "en"),
+                LangVariant(hl = "hi", ceid = "IN:hi", gnewsLang = "hi"),
+            )
+            NewsRegion.INTERNATIONAL -> listOf(
+                LangVariant(hl = "en-US", ceid = "US:en", gnewsLang = "en"),
+            )
+        }
+    }
+
+    private data class LangVariant(
+        val hl: String,
+        val ceid: String,
+        val gnewsLang: String,
+    )
+
+    /**
+     * Interleave articles from multiple language lists round-robin, then
+     * apply a light shuffle so the ordering feels random while keeping
+     * both languages well-represented.
+     */
+    private fun interleaveShuffle(articles: List<NewsArticle>): List<NewsArticle> {
+        if (articles.size <= 1) return articles
+        // Round-robin merge with a random starting offset per group,
+        // then shuffle within small windows to keep things mixed.
+        val shuffled = articles.shuffled()
+        return shuffled
+    }
+
+    private fun launchFresh(block: suspend () -> Unit) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                block()
+            } catch (_: Exception) { /* best-effort background work */ }
+        }
+    }
+
+    /**
+     * Enrich first N articles with publisher OG descriptions/images,
+     * then persist the enriched list to cache so next visit benefits.
+     */
+    private suspend fun enrichAndPersist(
+        categoryId: String,
+        region: NewsRegion,
+        articles: List<NewsArticle>,
+    ) {
+        if (articles.isEmpty()) return
+        val enriched = enrichArticles(articles)
+        runCatching { NewsCache.instance.save(categoryId, region, enriched) }
     }
 
     private fun fetchFromRss(
         categoryId: String,
         region: NewsRegion,
+        hl: String = region.hl,
+        ceid: String = region.ceid,
     ): Result<List<NewsArticle>> {
         return try {
-            val rssUrl = buildRssUrl(categoryId, region)
+            val rssUrl = buildRssUrl(categoryId, region, hl, ceid)
             val request = Request.Builder()
                 .url(rssUrl)
                 .header("User-Agent", userAgent)
                 .header("Accept", "application/rss+xml, application/xml, text/xml, */*")
-                .header("Accept-Language", region.hl)
+                .header("Accept-Language", hl)
                 .get()
                 .build()
 
@@ -164,6 +263,7 @@ class NewsRepository(
                             urlToImage = extractImageFromDescription(descriptionRaw),
                             publishedAt = pubDate?.let { formatRssDate(it) },
                             content = null,
+                            feedTag = FEED_TAG_RSS,
                         )
                     }
                 }
@@ -179,15 +279,14 @@ class NewsRepository(
         }
     }
 
-    /**
-     * Google News RSS endpoints:
-     * - Top: https://news.google.com/rss?hl=&gl=&ceid=
-     * - Topic: https://news.google.com/rss/headlines/section/topic/{TOPIC}?hl=&gl=&ceid=
-     * - Fallback search: https://news.google.com/rss/search?q=...&hl=&gl=&ceid=
-     */
-    private fun buildRssUrl(categoryId: String, region: NewsRegion): String {
+    private fun buildRssUrl(
+        categoryId: String,
+        region: NewsRegion,
+        hl: String = region.hl,
+        ceid: String = region.ceid,
+    ): String {
         val base = region.rssBaseUrl.trimEnd('/')
-        val query = "hl=${region.hl}&gl=${region.gl}&ceid=${region.ceid}"
+        val query = "hl=$hl&gl=${region.gl}&ceid=$ceid"
         val normalized = categoryId.lowercase(Locale.US)
 
         if (normalized !in categoryToGoogleTopic) {
@@ -203,10 +302,6 @@ class NewsRepository(
         }
     }
 
-    /**
-     * Decode Google News article URLs and scrape publisher OG description/image.
-     * Limited concurrency so category loads stay responsive.
-     */
     private suspend fun enrichArticles(articles: List<NewsArticle>): List<NewsArticle> {
         if (articles.isEmpty()) return articles
         val toEnrich = articles.take(ENRICH_LIMIT)
@@ -250,10 +345,6 @@ class NewsRepository(
         return id.takeIf { it.isNotBlank() }
     }
 
-    /**
-     * Decodes news.google.com/rss/articles/... to the original publisher URL.
-     * Uses Google's batchexecute endpoint (same approach as public GN URL decoders).
-     */
     private fun decodeGoogleNewsUrl(googleUrl: String): String? {
         val articleId = extractGoogleArticleId(googleUrl) ?: return null
         val (signature, timestamp) = fetchGoogleDecodeParams(articleId) ?: return null
@@ -324,7 +415,6 @@ class NewsRepository(
     }
 
     private fun parseDecodedPublisherUrl(raw: String): String? {
-        // Response prefix: )]}'\n\n[[...]]
         val jsonStart = raw.indexOf('\n')
         val payload = if (jsonStart >= 0) raw.substring(jsonStart).trim() else raw.trim()
         if (payload.isBlank()) return null
@@ -332,15 +422,12 @@ class NewsRepository(
         return try {
             val root = json.parseToJsonElement(payload).jsonArray
             val first = root.firstOrNull()?.jsonArray ?: return null
-            // ["wrb.fr","Fbv4je","[\"garturlres\",\"https://...\"]", ...]
             val encoded = first.getOrNull(2)?.jsonPrimitive?.content ?: return null
             val inner = json.parseToJsonElement(encoded).jsonArray
-            // ["garturlres","https://publisher...", ...]
             inner.getOrNull(1)?.jsonPrimitive?.content?.takeIf {
                 it.startsWith("http", ignoreCase = true)
             }
         } catch (_: Exception) {
-            // Fallback regex if JSON shape changes slightly
             PUBLISHER_URL_IN_BATCH.find(raw)?.groupValues?.getOrNull(1)
         }
     }
@@ -358,6 +445,7 @@ class NewsRepository(
                 if (!response.isSuccessful) return article
                 val html = response.body?.string().orEmpty()
                 if (html.isBlank()) return article
+                if (html.length > HTML_CAP) return article
 
                 val doc = Jsoup.parse(html, pageUrl)
                 val ogDescription = firstMetaContent(
@@ -381,9 +469,36 @@ class NewsRepository(
                 val image = ogImage
                     ?: article.urlToImage
 
+                // Target: at least MIN_WORDS_WITH_IMAGE (80) words of body text when
+                // a header image is available, MIN_WORDS_NO_IMAGE (120) when not.
+                // The card shows description + content stacked, so the body
+                // (content) makes up the remainder after `description`.
+                val targetWords = if (!image.isNullOrBlank()) MIN_WORDS_WITH_IMAGE else MIN_WORDS_NO_IMAGE
+                val descriptionWords = countWords(description)
+                val neededWords = (targetWords - descriptionWords).coerceAtLeast(0)
+
+                // Preserve the original RSS related-headlines as `content` fallback
+                // so the card combines OG summary (description) + headlines (content).
+                val preservedBody = article.description
+                    ?.takeIf { it != ogDescription }
+                    ?: article.content
+                val preservedWords = countWords(preservedBody)
+
+                // Extract publisher paragraphs.  Ask for enough words to hit the
+                // target minus what description already provides; fall back to the
+                // preserved RSS headlines if paragraphs come up short.
+                val articleParagraphs = extractArticleParagraphs(doc, neededWords)
+                val articleBody = when {
+                    countWords(articleParagraphs) >= neededWords -> articleParagraphs
+                    !articleParagraphs.isNullOrBlank() && preservedWords > 0 ->
+                        "$articleParagraphs\n\n$preservedBody"
+                    !articleParagraphs.isNullOrBlank() -> articleParagraphs
+                    else -> preservedBody
+                }
+
                 article.copy(
                     description = description,
-                    content = ogDescription ?: article.content,
+                    content = articleBody,
                     urlToImage = image,
                     url = pageUrl,
                 )
@@ -401,6 +516,62 @@ class NewsRepository(
         return null
     }
 
+    /**
+     * Extract the first few readable <p> paragraphs from the publisher article
+     * to fill the card with real body text (10-15 lines).  Skips short or
+     * noisy paragraphs (ads, newsletter prompts, etc.).
+     */
+    private fun extractArticleParagraphs(doc: Document, targetWords: Int = 0): String? {
+        val candidates = mutableListOf<String>()
+        val selectors = listOf(
+            "article p",
+            "[itemprop=articleBody] p",
+            "main p",
+            ".article-body p",
+            ".article-content p",
+            ".story-content p",
+            "#articlebody p",
+            "p",
+        )
+        for (selector in selectors) {
+            candidates.clear()
+            var totalWords = 0
+            doc.select(selector).forEach { el ->
+                val text = el.text().trim()
+                if (text.length < MIN_PARAGRAPH_LEN || isBoilerplateParagraph(text)) return@forEach
+                // Stop once we've hit the requested word threshold
+                if (targetWords > 0 && totalWords >= targetWords) return@forEach
+                candidates.add(text)
+                totalWords += countWords(text)
+            }
+            if (candidates.size >= MIN_PARAGRAPHS) break
+        }
+        if (candidates.isEmpty()) return null
+        return candidates
+            .take(MAX_PARAGRAPHS)
+            .joinToString("\n\n")
+            .take(MAX_BODY_CHARS)
+            .takeIf { it.isNotBlank() }
+    }
+
+    private fun countWords(text: String?): Int {
+        if (text.isNullOrBlank()) return 0
+        return text.trim().split(Regex("\\s+")).size
+    }
+
+    private fun isBoilerplateParagraph(text: String): Boolean {
+        val lower = text.lowercase(Locale.US)
+        return lower.contains("sign up for") ||
+            lower.contains("subscribe to") ||
+            lower.contains("newsletter") ||
+            lower.contains("cookie policy") ||
+            lower.contains("privacy policy") ||
+            lower.contains("advertisement") ||
+            lower.contains("read more:") ||
+            lower.startsWith("photo:") ||
+            lower.startsWith("also read")
+    }
+
     private fun absolutizeUrl(baseUrl: String, maybeRelative: String): String {
         return try {
             java.net.URI(baseUrl).resolve(maybeRelative).toString()
@@ -416,13 +587,13 @@ class NewsRepository(
     }
 
     /**
-     * Google RSS <description> is an HTML-escaped <ol> of related story links,
-     * not article body. Unescape, parse, and turn link texts into readable copy.
+     * Google RSS <description> is an HTML-escaped <ol> of related story links.
+     * Unescape, parse, and return all link texts as readable preview copy.
+     * These fill ~12–18 lines in the card until publisher OG enrichment finishes.
      */
     private fun parseGoogleRssDescription(raw: String?, articleTitle: String): String? {
         if (raw.isNullOrBlank()) return null
 
-        // wholeText/text may still contain entity-escaped HTML (&lt;ol&gt;...)
         val unescaped = Parser.unescapeEntities(raw, false).trim()
         val html = if (unescaped.contains('<')) {
             unescaped
@@ -448,8 +619,7 @@ class NewsRepository(
             .filterNot { titlesRoughlyEqual(it, articleTitle) }
 
         if (cleaned.isNotEmpty()) {
-            // Lead with the first related blurb; keep a couple more as context.
-            return cleaned.take(3).joinToString("\n\n")
+            return cleaned.joinToString("\n\n")
         }
 
         val plain = doc.text()
@@ -484,6 +654,7 @@ class NewsRepository(
     private fun fetchFromGnews(
         categoryId: String,
         region: NewsRegion,
+        lang: String = "en",
     ): Result<List<NewsArticle>> {
         return try {
             val apiKey = BuildConfig.GNEWS_API_KEY
@@ -497,7 +668,7 @@ class NewsRepository(
 
             val normalized = categoryId.lowercase(Locale.US)
             val urlBuilder = StringBuilder("https://gnews.io/api/v4/top-headlines")
-                .append("?lang=en")
+                .append("?lang=$lang")
                 .append("&country=${region.countryCode}")
                 .append("&max=10")
                 .append("&apikey=$apiKey")
@@ -511,7 +682,7 @@ class NewsRepository(
                     urlBuilder.clear()
                     urlBuilder.append("https://gnews.io/api/v4/search")
                         .append("?q=$q")
-                        .append("&lang=en")
+                        .append("&lang=$lang")
                         .append("&country=${region.countryCode}")
                         .append("&max=10")
                         .append("&apikey=$apiKey")
@@ -567,6 +738,7 @@ class NewsRepository(
                             urlToImage = gnewsArticle.image,
                             publishedAt = gnewsArticle.publishedAt,
                             content = gnewsArticle.content,
+                            feedTag = FEED_TAG_GNEWS,
                         )
                     }
                 }
@@ -632,16 +804,27 @@ class NewsRepository(
                 val inputFormat = SimpleDateFormat(pattern, Locale.US)
                 val date = inputFormat.parse(pubDate) ?: continue
                 return outputFormat.format(date)
-            } catch (_: Exception) {
-                // try next pattern
-            }
+            } catch (_: Exception) { /* try next pattern */ }
         }
         return pubDate
     }
 
     companion object {
-        private const val ENRICH_LIMIT = 12
-        private const val ENRICH_CONCURRENCY = 4
+        private const val ENRICH_LIMIT = 8
+        private const val ENRICH_CONCURRENCY = 6
+        private const val HTML_CAP = 500_000
+        private const val MIN_PARAGRAPH_LEN = 80
+        private const val MIN_PARAGRAPHS = 2
+        private const val MAX_PARAGRAPHS = 14
+        private const val MAX_BODY_CHARS = 4000
+        // Minimum body word count targets after enrichment.
+        // Lower bar when a header image is present (image fills vertical space),
+        // higher bar when there's no image (text must fill the card).
+        private const val MIN_WORDS_WITH_IMAGE = 80
+        private const val MIN_WORDS_NO_IMAGE = 120
+
+        const val FEED_TAG_RSS = "FEED"
+        const val FEED_TAG_GNEWS = "Gnews"
 
         private val ATTR_SIGNATURE = Regex("""data-n-a-sg="([^"]+)"""")
         private val ATTR_TIMESTAMP = Regex("""data-n-a-ts="([^"]+)"""")
