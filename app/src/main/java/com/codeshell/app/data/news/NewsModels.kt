@@ -13,6 +13,8 @@ data class NewsArticle(
     @SerialName("urlToImage") val urlToImage: String?,
     @SerialName("publishedAt") val publishedAt: String?,
     val content: String?,
+    /** "FEED" for Google News RSS, "Gnews" for GNews.io API. */
+    val feedTag: String? = null,
 )
 
 @Serializable

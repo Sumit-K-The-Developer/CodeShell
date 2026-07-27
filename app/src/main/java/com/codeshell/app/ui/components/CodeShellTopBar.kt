@@ -1,11 +1,9 @@
 package com.codeshell.app.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -18,7 +16,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -110,19 +107,15 @@ private fun RegionTextToggle(
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(4.dp)
-    Row(modifier = modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = "INDIA",
             fontSize = 9.sp,
             fontWeight = if (!checked) FontWeight.Bold else FontWeight.Normal,
             color = if (!checked) EditorDefaultText else EditorDefaultText.copy(alpha = 0.4f),
             modifier = Modifier
-                .clip(shape)
-                .background(if (!checked) EditorDefaultText.copy(alpha = 0.12f) else Color.Transparent)
-                .border(0.5.dp, EditorDefaultText.copy(alpha = 0.3f), shape)
                 .clickable { if (checked) onToggle(false) }
-                .padding(horizontal = 5.dp, vertical = 2.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp),
         )
         Text(
             text = "INTL",
@@ -130,11 +123,8 @@ private fun RegionTextToggle(
             fontWeight = if (checked) FontWeight.Bold else FontWeight.Normal,
             color = if (checked) EditorDefaultText else EditorDefaultText.copy(alpha = 0.4f),
             modifier = Modifier
-                .clip(shape)
-                .background(if (checked) EditorDefaultText.copy(alpha = 0.12f) else Color.Transparent)
-                .border(0.5.dp, EditorDefaultText.copy(alpha = 0.3f), shape)
                 .clickable { if (!checked) onToggle(true) }
-                .padding(horizontal = 5.dp, vertical = 2.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp),
         )
     }
 }
