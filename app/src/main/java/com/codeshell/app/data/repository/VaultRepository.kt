@@ -45,11 +45,18 @@ class VaultRepository(private val context: Context) {
         sourceMessageId: String? = null,
         onProgress: (completed: Long, total: Long) -> Unit,
     ): Result<VaultItem> = withContext(Dispatchers.IO) {
+        var connection: java.net.HttpURLConnection? = null
+        var file: java.io.File? = null
         try {
-            val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
             connection.connectTimeout = 15_000
             connection.readTimeout = 60_000
             connection.connect()
+            val code = connection.responseCode
+            if (code != java.net.HttpURLConnection.HTTP_OK) {
+                connection.disconnect()
+                return@withContext Result.failure(Exception("Download failed (HTTP $code)"))
+            }
 
             val totalBytes = connection.contentLength.toLong()
             val inputStream = connection.inputStream
@@ -65,10 +72,11 @@ class VaultRepository(private val context: Context) {
             vaultDir.mkdirs()
             thumbnailsDir.mkdirs()
 
-            val file = File(vaultDir, "$id$extension")
+            file = File(vaultDir, "$id$extension")
+            val targetFile = file
             var downloadedBytes = 0L
 
-            file.outputStream().use { output ->
+            targetFile.outputStream().use { output ->
                 inputStream.use { input ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var bytesRead: Int
@@ -81,10 +89,10 @@ class VaultRepository(private val context: Context) {
             }
             connection.disconnect()
 
-            val fileSize = file.length()
+            val fileSize = targetFile.length()
             val thumbnailFile = File(thumbnailsDir, "$id.jpg")
             try {
-                generateThumbnailStreaming(file, mimeType, thumbnailFile)
+                generateThumbnailStreaming(targetFile, mimeType, thumbnailFile)
             } catch (e: Throwable) {
                 // Thumbnail generation failed - skip silently
             }
@@ -101,11 +109,16 @@ class VaultRepository(private val context: Context) {
             appendToMetadata(item)
             Result.success(item)
         } catch (e: Throwable) {
+            // Don't leave a partial download lying around in the vault.
+            file?.let { partial -> if (partial.exists()) runCatching { partial.delete() } }
             Result.failure(Exception("Failed to download media: ${e.message}", e))
+        } finally {
+            connection?.disconnect()
         }
     }
 
     suspend fun saveFromUri(uri: Uri, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null): Result<VaultItem> = withContext(Dispatchers.IO) {
+        var file: java.io.File? = null
         try {
             val id = UUID.randomUUID().toString()
             val safeName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
@@ -120,18 +133,19 @@ class VaultRepository(private val context: Context) {
             val inputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(Exception("Could not open URI for reading"))
 
-            val file = File(vaultDir, "$id$extension")
+            file = File(vaultDir, "$id$extension")
+            val targetFile = file
             inputStream.use { input ->
-                file.outputStream().use { output ->
+                targetFile.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
 
-            val fileSize = file.length()
+            val fileSize = targetFile.length()
             val thumbnailFile = File(thumbnailsDir, "$id.jpg")
             // Generate thumbnail using streaming to avoid OOM on large files
             try {
-                generateThumbnailStreaming(file, mimeType, thumbnailFile)
+                generateThumbnailStreaming(targetFile, mimeType, thumbnailFile)
             } catch (e: Throwable) {
                 // Thumbnail generation failed - skip silently
             }
@@ -148,6 +162,8 @@ class VaultRepository(private val context: Context) {
             appendToMetadata(item)
             Result.success(item)
         } catch (e: Throwable) {
+            // Clean up a half-written partial file so the vault doesn't leak bytes.
+            file?.let { partial -> if (partial.exists()) runCatching { partial.delete() } }
             Result.failure(Exception("Failed to save media: ${e.message}", e))
         }
     }
@@ -324,6 +340,7 @@ class VaultRepository(private val context: Context) {
     }
 
     suspend fun moveToGallery(item: VaultItem): Result<Uri> = withContext(Dispatchers.IO) {
+        var insertedUri: Uri? = null
         try {
             val file = findEncryptedFile(item)
             if (file == null || !file.exists()) {
@@ -346,20 +363,22 @@ class VaultRepository(private val context: Context) {
             }
 
             val resolver = context.contentResolver
-            val uri = resolver.insert(collection, values)
+            insertedUri = resolver.insert(collection, values)
                 ?: return@withContext Result.failure(Exception("Could not save to gallery"))
 
-            resolver.openOutputStream(uri)?.use { it.write(bytes) }
+            resolver.openOutputStream(insertedUri)?.use { it.write(bytes) }
                 ?: return@withContext Result.failure(Exception("Could not write to gallery"))
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
                 values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                resolver.update(insertedUri, values, null, null)
             }
 
-            Result.success(uri)
-        } catch (e: Exception) {
+            Result.success(insertedUri)
+        } catch (e: Throwable) {
+            // Don't leave an orphaned IS_PENDING=1 MediaStore row if writing failed.
+            insertedUri?.let { runCatching { context.contentResolver.delete(it, null, null) } }
             Result.failure(e)
         }
     }
@@ -369,7 +388,9 @@ class VaultRepository(private val context: Context) {
             if (!metadataFile.exists()) return@withContext emptyList()
             val text = metadataFile.readText()
             json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch Throwable (incl. Error) so a malformed/corrupt metadata
+            // file can never crash loadItems() (which runs right after a save).
             emptyList()
         }
     }
@@ -382,7 +403,9 @@ class VaultRepository(private val context: Context) {
             }
             // No decryption needed - files are stored as-is
             Result.success(file.readBytes())
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch Throwable (incl. OutOfMemoryError) so a malformed/large file
+            // surfaces as a Dialog error instead of crashing the whole app.
             Result.failure(e)
         }
     }
@@ -395,7 +418,7 @@ class VaultRepository(private val context: Context) {
             } else {
                 Result.failure(Exception("No thumbnail"))
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(e)
         }
     }
@@ -405,7 +428,7 @@ class VaultRepository(private val context: Context) {
             findEncryptedFile(item)?.delete()
             File(thumbnailsDir, "${item.id}.jpg").delete()
             removeFromMetadata(item.id)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // ignore
         }
     }
@@ -415,12 +438,19 @@ class VaultRepository(private val context: Context) {
         return vaultDir.listFiles()?.firstOrNull { it.name.startsWith(item.id) }
     }
 
+    /**
+     * Returns the on-disk vault file backing [item], or null if it cannot be
+     * located. Exposed so the UI can hand the path directly to ExoPlayer /
+     * BitmapFactory instead of loading the whole file into memory.
+     */
+    fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
+
     private fun appendToMetadata(item: VaultItem) {
         val items = try {
             if (metadataFile.exists()) {
                 json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
             } else mutableListOf()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             mutableListOf()
         }
         items.add(item)
@@ -432,7 +462,7 @@ class VaultRepository(private val context: Context) {
             if (metadataFile.exists()) {
                 json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
             } else mutableListOf()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             mutableListOf()
         }
         items.removeAll { it.id == id }

@@ -5,8 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -16,6 +16,7 @@ import com.codeshell.app.data.repository.VaultRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -31,6 +32,8 @@ class VaultSaveService : Service() {
 
     private val vaultRepository by lazy { VaultRepository(this) }
     private lateinit var notificationManager: NotificationManager
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var isForeground = false
 
     override fun onCreate() {
         super.onCreate()
@@ -42,7 +45,10 @@ class VaultSaveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val url = intent?.getStringExtra(EXTRA_URL)
-        if (url == null) return START_NOT_STICKY
+        if (url == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
         val fileName = intent.getStringExtra(EXTRA_FILE_NAME) ?: "media"
         val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE) ?: "application/octet-stream"
@@ -50,9 +56,12 @@ class VaultSaveService : Service() {
         val sourceMessageId = intent.getStringExtra(EXTRA_SOURCE_MESSAGE_ID)
 
         VaultSaveTracker.saving(0f)
-        startForeground(NOTIFICATION_ID, buildNotification(0, fileName))
+        // Promote to the foreground before kicking off the download. On Android 14+
+        // (API 34) the foregroundServiceType must be supplied at this call; the manifest
+        // declares "dataSync" and the FOREGROUND_SERVICE_DATA_SYNC permission guards it.
+        startForegroundTyped(buildNotification(0, fileName))
 
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        serviceScope.launch {
             vaultRepository.saveFromUrlWithProgress(
                 url = url,
                 fileName = fileName,
@@ -86,8 +95,25 @@ class VaultSaveService : Service() {
     }
 
     override fun onDestroy() {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        serviceScope.cancel()
+        if (isForeground) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            isForeground = false
+        }
         super.onDestroy()
+    }
+
+    private fun startForegroundTyped(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        isForeground = true
     }
 
     private fun createChannel() {
