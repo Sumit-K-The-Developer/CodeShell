@@ -15,7 +15,20 @@ data class NewsArticle(
     val content: String?,
     /** "FEED" for Google News RSS, "Gnews" for GNews.io API. */
     val feedTag: String? = null,
+    /** ISO 639-1 code: "en" for English articles, "hi" for Hindi. Null on legacy cache entries. */
+    val language: String? = null,
 )
+
+enum class NewsLanguageFilter(val label: String) {
+    /** Only English-language articles. */
+    ENGLISH("English"),
+
+    /** Only Hindi-language articles. */
+    HINDI("Hindi"),
+
+    /** Both Hindi and English interleaved (the raw fetch order). */
+    MIX("Mix"),
+}
 
 @Serializable
 data class NewsSource(
