@@ -422,8 +422,13 @@ private fun VaultItemTile(
         val bytesResult = withContext(Dispatchers.IO) {
             viewModel.getThumbnailBytes(item)
         }
-        bytesResult.onSuccess { bytes ->
-            thumbnail = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        // runCatching so a thrown Error (e.g. OOM) while decoding the thumbnail
+        // can never escape the LaunchedEffect and crash the process; a failed
+        // tile simply falls back to the placeholder icon.
+        thumbnail = bytesResult.getOrNull()?.let { bytes ->
+            runCatching {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
         }
         loading = false
     }
@@ -509,24 +514,36 @@ private fun VaultItemViewerDialog(
 ) {
     var loading by remember(item.id) { mutableStateOf(true) }
     var bitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
-    var videoUri by remember(item.id) { mutableStateOf<String?>(null) }
+    var videoFile by remember(item.id) { mutableStateOf<java.io.File?>(null) }
     var showOptionsMenu by remember { mutableStateOf(false) }
 
+    // Resolve the on-disk vault file once per item. For images we decode a
+    // sampled bitmap straight from the file (avoids loading the whole file
+    // into RAM); for videos we hand the file path straight to ExoPlayer — no
+    // bytearray copy, no stale cache file, no OOM on large clips. This is the
+    // fix for the "video preview with play button is not shown" bug.
     LaunchedEffect(item.id) {
         loading = true
-        val bytesResult = withContext(Dispatchers.IO) {
-            viewModel.getDecryptedBytes(item)
+        val file = withContext(Dispatchers.IO) { viewModel.getVaultFile(item) }
+        if (file == null) {
+            loading = false
+            return@LaunchedEffect
         }
-        bytesResult.onSuccess { bytes ->
-            if (item.isImage) {
-                bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            } else if (item.isVideo) {
-                val file = File(
-                    viewModel.getApplicationCacheDir(),
-                    "vault_view_${item.id}${item.extension}"
-                )
-                file.writeBytes(bytes)
-                videoUri = file.toURI().toString()
+        when {
+            item.isImage -> {
+                val decoded = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, opts)
+                        opts.inSampleSize = calculateInSampleSize(opts.outWidth, opts.outHeight, 2048, 2048)
+                        opts.inJustDecodeBounds = false
+                        BitmapFactory.decodeFile(file.absolutePath, opts)
+                    }.getOrNull()
+                }
+                bitmap = decoded
+            }
+            item.isVideo -> {
+                videoFile = file
             }
         }
         loading = false
@@ -556,9 +573,9 @@ private fun VaultItemViewerDialog(
                         contentDescription = item.fileName,
                     )
                 }
-                item.isVideo && videoUri != null -> {
+                item.isVideo && videoFile != null -> {
                     VaultVideoPlayer(
-                        videoUrl = videoUri!!,
+                        videoUri = videoFile!!.absolutePath,
                     )
                 }
                 else -> {
@@ -714,19 +731,34 @@ private fun ZoomableVaultImage(
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun VaultVideoPlayer(
-    videoUrl: String,
+    videoUri: String,
 ) {
     val context = LocalContext.current
-    val player = remember(videoUrl) {
+    var showBuffering by remember(videoUri) { mutableStateOf(true) }
+
+    val player = remember(videoUri) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUrl))
+            setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
-            playWhenReady = true
+            // Start paused so the user controls playback with the on-screen
+            // play button; this matches the "video preview with play button"
+            // expectation instead of silently auto-playing.
+            playWhenReady = false
         }
     }
 
     DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                showBuffering = playbackState == Player.STATE_BUFFERING ||
+                    playbackState == Player.STATE_IDLE
+            }
+        }
+        player.addListener(listener)
+        showBuffering = player.playbackState == Player.STATE_BUFFERING ||
+            player.playbackState == Player.STATE_IDLE
         onDispose {
+            player.removeListener(listener)
             player.release()
         }
     }
@@ -736,7 +768,10 @@ private fun VaultVideoPlayer(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     this.player = player
+                    // Keep the controller visible so the play button is shown
+                    // (it auto-hides only once playback starts and on touch).
                     useController = true
+                    controllerAutoShow = true
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setBackgroundColor(android.graphics.Color.BLACK)
@@ -744,19 +779,7 @@ private fun VaultVideoPlayer(
             },
             modifier = Modifier.fillMaxSize(),
         )
-        var isLoading by remember { mutableStateOf(true) }
-        DisposableEffect(player) {
-            val listener = object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    isLoading = playbackState == Player.STATE_BUFFERING
-                }
-            }
-            player.addListener(listener)
-            onDispose {
-                player.removeListener(listener)
-            }
-        }
-        if (isLoading) {
+        if (showBuffering) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -765,6 +788,23 @@ private fun VaultVideoPlayer(
             )
         }
     }
+}
+
+private fun calculateInSampleSize(
+    width: Int,
+    height: Int,
+    reqWidth: Int,
+    reqHeight: Int,
+): Int {
+    var sampleSize = 1
+    if (height > reqHeight || width > reqWidth) {
+        val halfHeight = height / 2
+        val halfWidth = width / 2
+        while ((halfHeight / sampleSize) >= reqHeight && (halfWidth / sampleSize) >= reqWidth) {
+            sampleSize *= 2
+        }
+    }
+    return sampleSize
 }
 
 object PendingVaultSend {

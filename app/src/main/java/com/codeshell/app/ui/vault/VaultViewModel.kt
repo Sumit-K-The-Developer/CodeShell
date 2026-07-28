@@ -15,8 +15,10 @@ import com.codeshell.app.data.repository.MessageRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
@@ -68,16 +70,24 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveToVaultFromUris(uris: List<Uri>, onAllComplete: () -> Unit) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true) }
-            vaultRepository.saveFromUris(uris) { completed, total ->
-                _uiState.update { it.copy(saveProgress = completed to total) }
-            }.onSuccess { items ->
-                loadItems()
-                onAllComplete()
-            }.onFailure { error ->
-                _uiState.update { it.copy(errorMessage = error.message) }
+            _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
+            try {
+                vaultRepository.saveFromUris(uris) { completed, total ->
+                    _uiState.update { it.copy(saveProgress = completed to total) }
+                }.onSuccess {
+                    loadItems()
+                    onAllComplete()
+                }.onFailure { error ->
+                    _uiState.update { it.copy(errorMessage = error.message) }
+                }
+            } catch (e: Throwable) {
+                // Last-resort guard so a thrown exception can never escape the
+                // viewModelScope and tear the process down (would manifest as an
+                // app crash right after the photo picker returns).
+                _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save media") }
+            } finally {
+                _uiState.update { it.copy(isSaving = false, saveProgress = null) }
             }
-            _uiState.update { it.copy(isSaving = false, saveProgress = null) }
         }
     }
 
@@ -102,6 +112,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         return vaultRepository.getThumbnailBytes(item)
     }
 
+    /**
+     * Resolves the on-disk file for [item]. Must be called off the main thread
+     * (it touches the filesystem). Returns null when the backing file is gone.
+     */
+    suspend fun getVaultFile(item: VaultItem): File? = withContext(Dispatchers.IO) {
+        vaultRepository.getVaultFile(item)?.takeIf { it.exists() }
+    }
+
     fun moveToGallery(item: VaultItem) {
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true) }
@@ -118,35 +136,55 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun sendToChat(vaultItem: VaultItem, chatId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSending = true, sendProgress = null) }
-            val bytesResult = vaultRepository.getDecryptedBytes(vaultItem)
-            bytesResult.onSuccess { bytes ->
-                val extension = vaultItem.extension
-                val mimeType = vaultItem.mimeType
-                val tempFile = File(
-                    getApplication<Application>().cacheDir,
-                    "vault_send_${vaultItem.id}$extension"
-                )
-                tempFile.writeBytes(bytes)
-                val uri = Uri.fromFile(tempFile)
-                val currentUserId = authRepository.currentUser?.uid ?: return@launch
-                val participantResult = messageRepository.getParticipantIds(chatId)
-                val participantIds = participantResult.getOrNull() ?: return@launch
-                val recipientId = participantIds.firstOrNull { it != currentUserId } ?: return@launch
+            try {
+                val bytesResult = vaultRepository.getDecryptedBytes(vaultItem)
+                bytesResult.onSuccess { bytes ->
+                    val extension = vaultItem.extension
+                    val tempFile = File(
+                        getApplication<Application>().cacheDir,
+                        "vault_send_${vaultItem.id}$extension"
+                    )
+                    try {
+                        tempFile.writeBytes(bytes)
+                        val uri = Uri.fromFile(tempFile)
+                        val currentUserId = authRepository.currentUser?.uid
+                            ?: run {
+                                _uiState.update { it.copy(isSending = false, errorMessage = "Not signed in") }
+                                return@onSuccess
+                            }
+                        val participantResult = messageRepository.getParticipantIds(chatId)
+                        val participantIds = participantResult.getOrNull()
+                        if (participantIds == null) {
+                            _uiState.update { it.copy(isSending = false, errorMessage = participantResult.exceptionOrNull()?.message ?: "Chat not found") }
+                            return@onSuccess
+                        }
+                        val recipientId = participantIds.firstOrNull { it != currentUserId }
+                        if (recipientId == null) {
+                            _uiState.update { it.copy(isSending = false, errorMessage = "Recipient not found") }
+                            return@onSuccess
+                        }
 
-                val type = if (vaultItem.isVideo) MessageType.VIDEO else MessageType.IMAGE
+                        val type = if (vaultItem.isVideo) MessageType.VIDEO else MessageType.IMAGE
 
-                messageRepository.sendMediaMessage(
-                    chatId = chatId,
-                    senderId = currentUserId,
-                    recipientId = recipientId,
-                    type = type,
-                    contentUrl = uri.toString(),
-                    fileName = vaultItem.fileName,
-                )
-                tempFile.deleteOnExit()
-                _uiState.update { it.copy(sendProgress = 1 to 1, isSending = false, sendSuccess = true) }
-            }.onFailure { error ->
-                _uiState.update { it.copy(isSending = false, errorMessage = error.message) }
+                        messageRepository.sendMediaMessage(
+                            chatId = chatId,
+                            senderId = currentUserId,
+                            recipientId = recipientId,
+                            type = type,
+                            contentUrl = uri.toString(),
+                            fileName = vaultItem.fileName,
+                        )
+                        tempFile.deleteOnExit()
+                        _uiState.update { it.copy(sendProgress = 1 to 1, isSending = false, sendSuccess = true) }
+                    } finally {
+                        // Always reclaim the temp file, even on failure paths.
+                        runCatching { tempFile.delete() }
+                    }
+                }.onFailure { error ->
+                    _uiState.update { it.copy(isSending = false, errorMessage = error.message) }
+                }
+            } catch (e: Throwable) {
+                _uiState.update { it.copy(isSending = false, errorMessage = e.message ?: "Failed to send") }
             }
         }
     }
