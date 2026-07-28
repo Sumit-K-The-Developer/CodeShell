@@ -17,7 +17,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 data class NewsUiState(
     val articles: List<NewsArticle> = emptyList(),
+    /** True only for the initial full-screen spinner (no articles to show). */
     val isLoading: Boolean = false,
+    /** True whenever a background or manual refresh is running (green progress line). */
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val currentCategory: String = "top",
     val currentRegion: NewsRegion = NewsRegion.INDIA,
@@ -32,15 +35,24 @@ class NewsViewModel(
 
     private val fetchGeneration = AtomicInteger(0)
 
+    /** Tracks (categoryId, region) pairs we've already fetched at least once. */
+    private val fetchedKeys = mutableSetOf<String>()
+
+    private fun key(categoryId: String, region: NewsRegion): String =
+        "${categoryId}_${region.countryCode}"
+
     fun fetchNews(categoryId: String, region: NewsRegion) {
         val gen = fetchGeneration.incrementAndGet()
+        val k = key(categoryId, region)
+        val alreadyFetched = fetchedKeys.contains(k)
         viewModelScope.launch {
             val categoryChanged =
                 _uiState.value.currentCategory != categoryId ||
                     _uiState.value.currentRegion != region
             _uiState.update {
                 it.copy(
-                    isLoading = true,
+                    isLoading = categoryChanged && it.articles.isEmpty(),
+                    isRefreshing = false,
                     error = null,
                     currentCategory = categoryId,
                     currentRegion = region,
@@ -49,17 +61,20 @@ class NewsViewModel(
             }
             val result = repository.fetchNews(categoryId, region, skipCache = false)
             result.fold(
-                onSuccess = { articles ->
+                onSuccess = { cached ->
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            articles = articles,
-                            error = if (articles.isEmpty()) "No articles found for this category." else null,
+                            isRefreshing = false,
+                            articles = cached,
+                            error = if (cached.isEmpty()) "No articles found for this category." else null,
                         )
                     }
-                    // After RSS returns basic data, enrichment runs in background.
-                    // Re-read cache later to pick up enriched descriptions.
-                    if (gen == fetchGeneration.get()) {
+                    // Launch background fetch only the FIRST time visiting this category.
+                    // On subsequent visits, just return cached data silently.
+                    if (cached.isNotEmpty() && !alreadyFetched && gen == fetchGeneration.get()) {
+                        backgroundRefresh(categoryId, region, gen)
+                    } else if (gen == fetchGeneration.get()) {
                         scheduleEnrichmentRefresh(categoryId, region, gen)
                     }
                 },
@@ -67,6 +82,7 @@ class NewsViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             articles = emptyList(),
                             error = error.message ?: "Failed to load news.",
                         )
@@ -74,12 +90,37 @@ class NewsViewModel(
                 },
             )
         }
+        fetchedKeys.add(k)
+    }
+
+    private fun backgroundRefresh(categoryId: String, region: NewsRegion, gen: Int) {
+        _uiState.update { it.copy(isRefreshing = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = repository.fetchNews(categoryId, region, skipCache = true)
+            if (gen != fetchGeneration.get()) return@launch
+            result.fold(
+                onSuccess = { articles ->
+                    _uiState.update {
+                        it.copy(
+                            isRefreshing = false,
+                            articles = articles,
+                            error = if (articles.isEmpty()) "No articles found for this category." else null,
+                        )
+                    }
+                    if (gen == fetchGeneration.get()) {
+                        scheduleEnrichmentRefresh(categoryId, region, gen)
+                    }
+                },
+                onFailure = {
+                    _uiState.update { it.copy(isRefreshing = false) }
+                },
+            )
+        }
     }
 
     /**
-     * After RSS data appears, the repository enriches descriptions/images
-     * in the background and saves to cache.  We poll the cache once
-     * after a delay so the card text updates without user interaction.
+     * Poll the cache after enrichment silently (no green line).
+     * The green progress should disappear as soon as articles are refreshed.
      */
     private fun scheduleEnrichmentRefresh(
         categoryId: String,
@@ -92,8 +133,13 @@ class NewsViewModel(
             val cached = runCatching { NewsCache.instance.loadAll(categoryId, region) }
                 .getOrNull()
             if (cached.isNullOrEmpty()) return@launch
-            // Only update if the enriched list is different (has OG descriptions)
-            _uiState.update { it.copy(articles = cached) }
+            if (gen != fetchGeneration.get()) return@launch
+            _uiState.update {
+                it.copy(
+                    isRefreshing = false,
+                    articles = cached,
+                )
+            }
         }
     }
 
@@ -104,7 +150,11 @@ class NewsViewModel(
         viewModelScope.launch {
             runCatching { NewsCache.instance.clear(category, region) }
             _uiState.update {
-                it.copy(isLoading = true, error = null, articles = emptyList())
+                it.copy(
+                    isLoading = it.articles.isEmpty(),
+                    isRefreshing = it.articles.isNotEmpty(),
+                    error = null,
+                )
             }
             val result = repository.fetchNews(category, region, skipCache = true)
             result.fold(
@@ -112,6 +162,7 @@ class NewsViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             articles = articles,
                             error = if (articles.isEmpty()) "No articles found for this category." else null,
                         )
@@ -124,7 +175,7 @@ class NewsViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            articles = emptyList(),
+                            isRefreshing = false,
                             error = error.message ?: "Failed to load news.",
                         )
                     }
@@ -133,8 +184,12 @@ class NewsViewModel(
         }
     }
 
+    fun cancelRefresh() {
+        fetchGeneration.incrementAndGet()
+        _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
+    }
+
     companion object {
-        /** How long to wait before re-reading the cache for enriched descriptions. */
         private const val ENRICHMENT_POLL_DELAY_MS = 12_000L
     }
 }

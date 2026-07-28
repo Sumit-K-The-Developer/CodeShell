@@ -92,5 +92,6 @@ fun rememberExitAppAction(): () -> Unit {
     val context = LocalContext.current
     return {
         (context as? Activity)?.finishAffinity()
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 }

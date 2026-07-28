@@ -86,7 +86,6 @@ class NewsRepository(
             val cached = runCatching { NewsCache.instance.loadAll(categoryId, region) }
                 .getOrNull()
             if (!cached.isNullOrEmpty()) {
-                launchFresh { fetchAndCache(categoryId, region) }
                 return@withContext Result.success(cached)
             }
         }
@@ -264,6 +263,7 @@ class NewsRepository(
                             publishedAt = pubDate?.let { formatRssDate(it) },
                             content = null,
                             feedTag = FEED_TAG_RSS,
+                            language = if (hl.startsWith("hi")) "hi" else "en",
                         )
                     }
                 }
@@ -739,6 +739,7 @@ class NewsRepository(
                             publishedAt = gnewsArticle.publishedAt,
                             content = gnewsArticle.content,
                             feedTag = FEED_TAG_GNEWS,
+                            language = if (lang == "hi") "hi" else "en",
                         )
                     }
                 }

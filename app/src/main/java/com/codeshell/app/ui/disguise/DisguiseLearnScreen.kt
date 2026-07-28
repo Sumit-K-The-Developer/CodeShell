@@ -34,6 +34,7 @@ import com.codeshell.app.R
 import com.codeshell.app.messaging.PendingNewsArticle
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.news.NewsArticle
+import com.codeshell.app.data.news.NewsLanguageFilter
 import com.codeshell.app.data.news.NewsRegion
 import com.codeshell.app.disguise.ShellFlavorConfigProvider
 import com.codeshell.app.ui.components.CodeShellTopBar
@@ -100,10 +101,14 @@ private fun DisguiseLearnContent(
     val isNewsFlavor = ShellFlavorConfigProvider.isNewsFlavor
     var isInternational by rememberSaveable { mutableStateOf(false) }
     var pendingArticleUrl by remember { mutableStateOf<String?>(null) }
+    // Hoisted here so it persists across category (HorizontalPager) changes
+    var languageFilter by rememberSaveable { mutableStateOf(NewsLanguageFilter.ENGLISH) }
     val newsViewModel: NewsViewModel = viewModel()
 
-    // Consume a deep-link article URL from a notification tap
-    LaunchedEffect(Unit) {
+    // Re-fire on every set() call so a notification tap on an already-open screen
+    // also navigates to the article (not just on the first composition).
+    val pendingNewsVersion by PendingNewsArticle.version.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingNewsVersion) {
         val pending = PendingNewsArticle.consume()
         if (pending != null) {
             selectedTopicId = pending.categoryId
@@ -123,7 +128,7 @@ private fun DisguiseLearnContent(
     LaunchedEffect(selectedTopicId, topics) {
         val targetPage = topics.indexOfFirst { it.id == selectedTopicId }.coerceAtLeast(0)
         if (targetPage != pagerState.currentPage && targetPage != lastSyncedPage) {
-            pagerState.animateScrollToPage(targetPage)
+            pagerState.scrollToPage(targetPage)
             lastSyncedPage = targetPage
         }
     }
@@ -135,6 +140,7 @@ private fun DisguiseLearnContent(
                 val topic = topics.getOrNull(page) ?: return@collect
                 if (topic.id != selectedTopicId) {
                     selectedTopicId = topic.id
+                    pendingArticleUrl = null
                 }
                 lastSyncedPage = page
             }
@@ -161,7 +167,10 @@ private fun DisguiseLearnContent(
                     TopicTopBar(
                         topics = topics,
                         selectedTopicId = selectedTopicId,
-                        onTopicSelected = { topic -> selectedTopicId = topic.id },
+                        onTopicSelected = { topic ->
+                            selectedTopicId = topic.id
+                            pendingArticleUrl = null
+                        },
                         onSecretEntry = onSecretEntry,
                         secretChipDoubleTapEnabled = secretChipDoubleTapEnabled,
                     )
@@ -186,6 +195,10 @@ private fun DisguiseLearnContent(
                             }
                         },
                         initialArticleUrl = pendingArticleUrl,
+                        onInitialArticleConsumed = { pendingArticleUrl = null },
+                        showLanguageFilter = !isInternational,
+                        languageFilter = languageFilter,
+                        onLanguageFilterChange = { languageFilter = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

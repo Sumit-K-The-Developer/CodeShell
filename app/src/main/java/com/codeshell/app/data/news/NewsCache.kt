@@ -24,6 +24,11 @@ class NewsCache private constructor(private val cacheDir: File) {
                 file.delete()
                 return null
             }
+            // Invalidate entries missing language tags (pre-tagging cache format).
+            if (entry.articles.isNotEmpty() && entry.articles.all { it.language.isNullOrBlank() }) {
+                file.delete()
+                return null
+            }
             entry.articles.ifEmpty { null }
         } catch (_: Exception) {
             file.delete()
