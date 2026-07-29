@@ -117,7 +117,20 @@ class VaultRepository(private val context: Context) {
         }
     }
 
-    suspend fun saveFromUri(uri: Uri, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null): Result<VaultItem> = withContext(Dispatchers.IO) {
+    /**
+     * Copies a content URI into the vault. When [deleteSource] is true (the
+     * default for gallery imports) the source URI is removed afterwards on a
+     * best-effort basis, turning the copy into a move — see [deleteSourceUri]
+     * for permission caveats on Android 13+ photo-picker URIs.
+     */
+    suspend fun saveFromUri(
+        uri: Uri,
+        fileName: String,
+        mimeType: String,
+        sourceChatId: String? = null,
+        sourceMessageId: String? = null,
+        deleteSource: Boolean = true,
+    ): Result<VaultItem> = withContext(Dispatchers.IO) {
         var file: java.io.File? = null
         try {
             val id = UUID.randomUUID().toString()
@@ -160,6 +173,12 @@ class VaultRepository(private val context: Context) {
                 sourceMessageId = sourceMessageId,
             )
             appendToMetadata(item)
+
+            // True move: drop the source gallery entry after the vault copy is
+            // safely committed. Never blocking — see [deleteSourceUri].
+            if (deleteSource) {
+                deleteSourceUri(uri)
+            }
             Result.success(item)
         } catch (e: Throwable) {
             // Clean up a half-written partial file so the vault doesn't leak bytes.
@@ -339,15 +358,23 @@ class VaultRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Moves [item] out of the vault into the system gallery via [MediaStore].
+     *
+     * This is a true **move**: after the MediaStore insert succeeds the vault
+     * file, its thumbnail and its metadata entry are deleted, so the media is
+     * no longer accessible from the vault page. If the gallery insert fails the
+     * vault item is left intact.
+     */
     suspend fun moveToGallery(item: VaultItem): Result<Uri> = withContext(Dispatchers.IO) {
         var insertedUri: Uri? = null
         try {
-            val file = findEncryptedFile(item)
-            if (file == null || !file.exists()) {
+            val vaultFile = findEncryptedFile(item)
+            if (vaultFile == null || !vaultFile.exists()) {
                 return@withContext Result.failure(Exception("File not found"))
             }
 
-            val bytes = file.readBytes()
+            val bytes = vaultFile.readBytes()
             val collection = when {
                 item.isVideo -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                 item.isImage -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -375,10 +402,17 @@ class VaultRepository(private val context: Context) {
                 resolver.update(insertedUri, values, null, null)
             }
 
+            // Move completed: drop the vault copy so the item is no longer
+            // accessible from the vault (it now lives in the gallery only).
+            vaultFile.delete()
+            File(thumbnailsDir, "${item.id}.jpg").delete()
+            removeFromMetadata(item.id)
+
             Result.success(insertedUri)
         } catch (e: Throwable) {
             // Don't leave an orphaned IS_PENDING=1 MediaStore row if writing failed.
             insertedUri?.let { runCatching { context.contentResolver.delete(it, null, null) } }
+            // Never delete the vault source on failure — the user can retry.
             Result.failure(e)
         }
     }
@@ -436,6 +470,26 @@ class VaultRepository(private val context: Context) {
     private fun findEncryptedFile(item: VaultItem): File? {
         // Look for file starting with the item's id
         return vaultDir.listFiles()?.firstOrNull { it.name.startsWith(item.id) }
+    }
+
+    /**
+     * Best-effort deletion of a content URI's backing document. Used to turn a
+     * gallery→vault copy into a true move.
+     *
+     * On Android 13+ the photo picker returns read-only URIs that the system
+     * will not let an arbitrary app delete; in that case this is a silent
+     * no-op and the source stays in the gallery (the vault still gets its
+     * copy). Where the granted URI *does* allow write (e.g. SAF / OpenDocument
+     * fallbacks, or media the app owns), the original is removed.
+     */
+    private fun deleteSourceUri(uri: Uri): Boolean {
+        return try {
+            context.contentResolver.delete(uri, null, null) > 0
+        } catch (_: Throwable) {
+            // SecurityException / UnsupportedOperationException on read-only
+            // picker URIs — expected on Android 13+ photo picker. Swallow.
+            false
+        }
     }
 
     /**

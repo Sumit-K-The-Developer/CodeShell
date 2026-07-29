@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import com.codeshell.app.util.findActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,9 +28,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -105,6 +104,15 @@ fun VaultScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // Resolve the host activity so we can suppress the secure-exit (hide-on-home)
+    // feature while an external media picker is showing. Without this, opening
+    // the system photo picker triggers onUserLeaveHint() which finishes the
+    // activity — and the process crashes when the picker result is delivered.
+    val activity = context.findActivity() as? com.codeshell.app.MainActivity
+
+    fun setSuppressHideOnHome(suppress: Boolean) {
+        activity?.applySuppressHideOnHome(suppress)
+    }
 
     var showSelectionMenu by remember { mutableStateOf(false) }
     var showSendConfirmationDialog by remember { mutableStateOf(false) }
@@ -116,6 +124,8 @@ fun VaultScreen(
     val galleryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris: List<Uri> ->
+        // Always re-allow hide-on-home the moment the picker returns.
+        setSuppressHideOnHome(false)
         if (uris.isNotEmpty()) {
             // Take persistable permission so background threads can read the files
             uris.forEach { uri ->
@@ -136,6 +146,13 @@ fun VaultScreen(
 
     LaunchedEffect(Unit) {
         viewModel.loadItems()
+    }
+
+    DisposableEffect(Unit) {
+        // Safety net: if the screen leaves while suppressHideOnHome was set
+        // (e.g. process went away) make sure the flag is cleared so the
+        // chat interface's secure exit keeps working elsewhere.
+        onDispose { setSuppressHideOnHome(false) }
     }
 
     BackHandler(enabled = uiState.selectionMode) {
@@ -199,6 +216,16 @@ fun VaultScreen(
                                 onDismissRequest = { showSelectionMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Send to Chat") },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        val selectedIds = uiState.selectedItems.toList()
+                                        PendingVaultSend.setAll(selectedIds)
+                                        onNavigateToHomeForVaultSend?.invoke()
+                                    },
+                                    enabled = !uiState.isSending
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Move to Gallery") },
                                     onClick = {
                                         showSelectionMenu = false
@@ -235,7 +262,11 @@ fun VaultScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                     galleryPicker.launch(
+                    // Suppress the hide-on-home secure exit for as long as the
+                    // system gallery is in front, otherwise MainActivity would
+                    // be finished() and crash when the picker returns.
+                    setSuppressHideOnHome(true)
+                    galleryPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                     )
                 },
@@ -648,31 +679,15 @@ private fun VaultItemViewerDialog(
                     .background(Color.Black.copy(alpha = 0.7f))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
+                // The viewer's actions live only in the overflow menu (top-right),
+                // so the bottom bar is just the filename. This removes the duplicate
+                // Send/Delete icon buttons that previously sat here.
                 Text(
                     text = item.fileName,
                     color = Color.White,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.align(Alignment.CenterStart),
+                    modifier = Modifier.align(Alignment.Center),
                 )
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    IconButton(onClick = onSend) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send to chat",
-                            tint = Color.White,
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = Color.White,
-                        )
-                    }
-                }
             }
         }
     }
@@ -808,15 +823,27 @@ private fun calculateInSampleSize(
 }
 
 object PendingVaultSend {
-    private var itemId: String? = null
+    private var itemIds: List<String> = emptyList()
 
     fun set(id: String) {
-        itemId = id
+        itemIds = listOf(id)
     }
 
+    fun setAll(ids: List<String>) {
+        itemIds = ids
+    }
+
+    /** Single-item accessor preserved for single-send callers. */
     fun consume(): String? {
-        val id = itemId
-        itemId = null
+        val id = itemIds.firstOrNull()
+        itemIds = emptyList()
         return id
+    }
+
+    /** Multi-item accessor used by the vault multiselect send flow. */
+    fun consumeAll(): List<String> {
+        val ids = itemIds
+        itemIds = emptyList()
+        return ids
     }
 }

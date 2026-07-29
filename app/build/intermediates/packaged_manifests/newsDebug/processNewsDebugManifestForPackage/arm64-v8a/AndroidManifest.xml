@@ -24,8 +24,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <!-- Required on Android 14+ (targetSdk 34) to start a dataSync foreground service -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -141,10 +139,6 @@
             android:name="com.codeshell.app.call.CallForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera|mediaProjection" />
-        <service
-            android:name="com.codeshell.app.ui.vault.VaultSaveService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
         <service
             android:name="com.google.firebase.components.ComponentDiscoveryService"
             android:directBootAware="true"

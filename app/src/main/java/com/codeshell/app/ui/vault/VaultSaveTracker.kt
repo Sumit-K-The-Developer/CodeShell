@@ -7,10 +7,12 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Singleton that tracks the state of a vault media save operation.
  *
- * The save operation runs in a foreground service ([VaultSaveService]) so that it
- * can survive the originating ViewModel being cleared (e.g. when the user
- * navigates away from the chat / media viewer).  Both the service and the UI
- * observe this state so that progress is never lost.
+ * The save operation runs on the process-global
+ * [com.codeshell.app.util.BackgroundWorkCoordinator] so it survives the
+ * originating ViewModel / Activity being cleared (even when the user leaves the
+ * screen or closes the app) until it completes or is cancelled manually. No
+ * progress notification is posted; the active screen observes this state for
+ * in-app progress only.
  */
 object VaultSaveTracker {
 

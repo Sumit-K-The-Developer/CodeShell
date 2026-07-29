@@ -1,20 +1,20 @@
 -- Merging decision tree log ---
 provider#androidx.core.content.FileProvider
-INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:89:9-97:20
+INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:87:9-95:20
 	android:grantUriPermissions
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:93:13-47
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:91:13-47
 	android:authorities
 		INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:91:13-64
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:89:13-64
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:92:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:90:13-37
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:90:13-62
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:88:13-62
 manifest
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-126:12
-INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-126:12
-INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-126:12
-INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-126:12
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-119:12
+INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-119:12
+INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-119:12
+INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:2:1-119:12
 MERGED from [io.coil-kt:coil-video:2.6.0] C:\Users\sumit\.gradle\caches\transforms-4\091382878f8d38ab9500cefd8d51a6da\transformed\coil-video-2.6.0\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.media3:media3-ui:1.4.1] C:\Users\sumit\.gradle\caches\transforms-4\e8226d3d3dc638f1bbe5ee3017e72588\transformed\media3-ui-1.4.1\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-effect:1.4.1] C:\Users\sumit\.gradle\caches\transforms-4\419ab8c60804f523ec7e185cab1a4d7c\transformed\media3-effect-1.4.1\AndroidManifest.xml:17:1-22:12
@@ -292,16 +292,12 @@ uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION
 ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:19:5-94
 	android:name
 		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:19:22-91
-uses-permission#android.permission.FOREGROUND_SERVICE_DATA_SYNC
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:21:5-87
-	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:21:22-84
 uses-permission#android.permission.MODIFY_AUDIO_SETTINGS
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:22:5-80
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:20:5-80
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:22:22-77
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:20:22-77
 uses-permission#android.permission.WAKE_LOCK
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:23:5-68
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:21:5-68
 MERGED from [com.google.firebase:firebase-messaging:24.0.0] C:\Users\sumit\.gradle\caches\transforms-4\69fc30af43d9c92303ac87adf8450ef8\transformed\firebase-messaging-24.0.0\AndroidManifest.xml:24:5-68
 MERGED from [com.google.firebase:firebase-messaging:24.0.0] C:\Users\sumit\.gradle\caches\transforms-4\69fc30af43d9c92303ac87adf8450ef8\transformed\firebase-messaging-24.0.0\AndroidManifest.xml:24:5-68
 MERGED from [com.google.android.gms:play-services-measurement-api:22.0.2] C:\Users\sumit\.gradle\caches\transforms-4\f578ea33d12630026c70c2b25ac4fac6\transformed\play-services-measurement-api-22.0.2\AndroidManifest.xml:24:5-68
@@ -317,10 +313,10 @@ MERGED from [com.google.android.gms:play-services-measurement-impl:22.0.2] C:\Us
 MERGED from [com.google.android.gms:play-services-measurement-sdk-api:22.0.2] C:\Users\sumit\.gradle\caches\transforms-4\9a8ca0331a629c1dee0b8c2f883fdccc\transformed\play-services-measurement-sdk-api-22.0.2\AndroidManifest.xml:25:5-68
 MERGED from [com.google.android.gms:play-services-measurement-sdk-api:22.0.2] C:\Users\sumit\.gradle\caches\transforms-4\9a8ca0331a629c1dee0b8c2f883fdccc\transformed\play-services-measurement-sdk-api-22.0.2\AndroidManifest.xml:25:5-68
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:23:22-65
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:21:22-65
 application
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:25:5-124:19
-INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:25:5-124:19
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:23:5-117:19
+INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:23:5-117:19
 MERGED from [com.google.firebase:firebase-auth-ktx:23.0.0] C:\Users\sumit\.gradle\caches\transforms-4\a41ab76e8ae2da1c3183857623157a7f\transformed\firebase-auth-ktx-23.0.0\AndroidManifest.xml:7:5-15:19
 MERGED from [com.google.firebase:firebase-auth-ktx:23.0.0] C:\Users\sumit\.gradle\caches\transforms-4\a41ab76e8ae2da1c3183857623157a7f\transformed\firebase-auth-ktx-23.0.0\AndroidManifest.xml:7:5-15:19
 MERGED from [com.google.firebase:firebase-auth:23.0.0] C:\Users\sumit\.gradle\caches\transforms-4\bedaea9a470a8fa210a9efc12f04d9f3\transformed\firebase-auth-23.0.0\AndroidManifest.xml:28:5-73:19
@@ -420,153 +416,145 @@ MERGED from [com.google.android.datatransport:transport-runtime:3.1.9] C:\Users\
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] C:\Users\sumit\.gradle\caches\transforms-4\e944da18d38842cbe81f9529e9cd55e3\transformed\core-1.13.1\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:31:9-35
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:29:9-35
 	android:label
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:29:9-41
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:27:9-41
 	android:roundIcon
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:30:9-54
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:28:9-54
 	android:icon
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:28:9-43
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:26:9-43
 	android:allowBackup
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:27:9-36
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:25:9-36
 	android:theme
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:32:9-47
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:30:9-47
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:26:9-45
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:24:9-45
 activity#com.codeshell.app.MainActivity
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:34:9-45:20
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:32:9-43:20
 	android:excludeFromRecents
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:37:13-46
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:35:13-46
 	android:launchMode
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:38:13-44
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:36:13-44
 	android:windowSoftInputMode
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:40:13-55
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:38:13-55
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:36:13-36
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:34:13-36
 	android:resizeableActivity
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:39:13-46
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:37:13-46
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:35:13-41
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:33:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:41:13-44:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:39:13-42:29
 action#android.intent.action.MAIN
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:42:17-69
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:40:17-69
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:42:25-66
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:40:25-66
 category#android.intent.category.LAUNCHER
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:43:17-77
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:41:17-77
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:43:27-74
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:41:27-74
 activity-alias#com.codeshell.app.ShareActivityAlias
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:47:9-59:26
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:45:9-57:26
 	android:enabled
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:49:13-36
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:47:13-36
 	android:label
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:51:13-45
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:49:13-45
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:50:13-36
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:48:13-36
 	android:targetActivity
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:52:13-51
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:50:13-51
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:48:13-47
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:46:13-47
 intent-filter#action:name:android.intent.action.SEND+category:name:android.intent.category.DEFAULT+data:mimeType:text/plain+data:mimeType:video/*
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:53:13-58:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:51:13-56:29
 action#android.intent.action.SEND
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:54:17-69
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:52:17-69
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:54:25-66
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:52:25-66
 category#android.intent.category.DEFAULT
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:55:17-76
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:53:17-76
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:55:27-73
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:53:27-73
 data
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:56:17-55
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:54:17-55
 	android:host
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:72:21-40
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:70:21-40
 	android:scheme
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:73:21-57
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:71:21-57
 	android:mimeType
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:56:23-52
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:54:23-52
 receiver#com.codeshell.app.receiver.SecretCodeReceiver
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:66:9-75:20
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:64:9-73:20
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:68:13-36
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:66:13-36
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:67:13-56
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:65:13-56
 intent-filter#action:name:android.provider.Telephony.SECRET_CODE+data:host:7777+data:scheme:android_secret_code
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:69:13-74:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:67:13-72:29
 action#android.provider.Telephony.SECRET_CODE
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:70:17-81
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:68:17-81
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:70:25-78
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:68:25-78
 receiver#com.codeshell.app.receiver.SecretEntryResetReceiver
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:77:9-87:20
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:75:9-85:20
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:79:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:77:13-37
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:78:13-62
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:76:13-62
 intent-filter#action:name:com.codeshell.app.action.SECRET_ENTRY_DAILY_RESET
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:80:13-82:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:78:13-80:29
 action#com.codeshell.app.action.SECRET_ENTRY_DAILY_RESET
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:81:17-92
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:79:17-92
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:81:25-89
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:79:25-89
 intent-filter#action:name:android.intent.action.BOOT_COMPLETED+action:name:android.intent.action.MY_PACKAGE_REPLACED
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:83:13-86:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:81:13-84:29
 action#android.intent.action.BOOT_COMPLETED
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:84:17-79
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:82:17-79
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:84:25-76
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:82:25-76
 action#android.intent.action.MY_PACKAGE_REPLACED
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:85:17-84
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:83:17-84
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:85:25-81
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:83:25-81
 receiver#com.codeshell.app.receiver.NotificationDismissReceiver
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:99:9-101:40
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:97:9-99:40
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:101:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:99:13-37
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:100:13-65
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:98:13-65
 receiver#com.codeshell.app.receiver.ScreenShareActionReceiver
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:103:9-105:40
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:101:9-103:40
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:105:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:103:13-37
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:104:13-63
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:102:13-63
 service#com.codeshell.app.messaging.CodeShellMessagingService
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:107:9-113:19
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:105:9-111:19
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:109:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:107:13-37
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:108:13-64
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:106:13-64
 intent-filter#action:name:com.google.firebase.MESSAGING_EVENT
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:110:13-112:29
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:108:13-110:29
 action#com.google.firebase.MESSAGING_EVENT
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:111:17-78
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:109:17-78
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:111:25-75
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:109:25-75
 service#com.codeshell.app.call.CallForegroundService
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:115:9-118:81
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:113:9-116:81
 	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:117:13-37
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:115:13-37
 	android:foregroundServiceType
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:118:13-78
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:116:13-78
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:116:13-55
-service#com.codeshell.app.ui.vault.VaultSaveService
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:120:9-123:56
-	android:exported
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:122:13-37
-	android:foregroundServiceType
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:123:13-53
-	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:121:13-54
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:114:13-55
 meta-data#android.support.FILE_PROVIDER_PATHS
-ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:94:13-96:54
+ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:92:13-94:54
 	android:resource
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:96:17-51
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:94:17-51
 	android:name
-		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:95:17-67
+		ADDED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml:93:17-67
 uses-sdk
 INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from C:\Users\sumit\AndroidStudioProjects\CodeShell\app\src\main\AndroidManifest.xml

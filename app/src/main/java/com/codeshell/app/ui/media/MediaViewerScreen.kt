@@ -88,7 +88,7 @@ fun MediaViewerScreen(
         factory = AndroidViewModelFactory(app)
     )
 
-    // Observe the persistent save tracker (updated by VaultSaveService)
+    // Observe the persistent save tracker (updated by the background vault save)
     val saveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(chatId, messageId) {

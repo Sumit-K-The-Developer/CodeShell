@@ -133,7 +133,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenAiTutor: (topicId: String, topicLabel: String, welcomeDigits: String, entrySource: String) -> Unit,
     onTerminalRevoked: () -> Unit,
-    vaultSendItemId: String? = null,
+    vaultSendItemIds: List<String> = emptyList(),
 ) {
     val vaultViewModel: VaultViewModel = viewModel()
     val app = LocalContext.current.applicationContext as CodeShellApplication
@@ -165,20 +165,20 @@ fun HomeScreen(
     }
 
     // Handle vault send flow - load vault items and enter selection mode when coming from vault
-    LaunchedEffect(vaultSendItemId) {
-        if (vaultSendItemId != null) {
+    LaunchedEffect(vaultSendItemIds) {
+        if (vaultSendItemIds.isNotEmpty()) {
             vaultViewModel.loadItems()
             viewModel.enterSelectionModeForVaultSend()
         }
     }
 
-    // Handle sending vault item when selection changes during vault send
+    // Handle sending vault items when selection changes during vault send.
+    // Supports a single item (legacy single-send) or multiple items (multiselect send).
     LaunchedEffect(uiState.selectedChatIds, uiState.pendingVaultSend) {
         if (uiState.pendingVaultSend && uiState.selectedChatIds.isNotEmpty()) {
             val chatId = uiState.selectedChatIds.first()
-            vaultSendItemId?.let { itemId ->
-                // Load vault item and send to selected chat
-                vaultViewModel.sendVaultItemToChat(itemId, chatId)
+            if (vaultSendItemIds.isNotEmpty()) {
+                vaultViewModel.sendVaultItemsToChat(vaultSendItemIds, chatId)
                 viewModel.clearVaultSendFlag()
             }
             viewModel.cancelSelection()

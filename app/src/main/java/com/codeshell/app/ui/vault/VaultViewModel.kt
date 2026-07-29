@@ -1,21 +1,20 @@
 package com.codeshell.app.ui.vault
 
 import android.app.Application
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.data.model.MessageType
 import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.data.repository.AuthRepository
-import com.codeshell.app.data.repository.ChatRepository
 import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.data.repository.MessageRepository
+import com.codeshell.app.util.BackgroundWorkCoordinator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,12 +23,17 @@ import java.io.File
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     private val vaultRepository = VaultRepository(application)
-    private val chatRepository = ChatRepository()
     private val messageRepository = MessageRepository()
     private val authRepository = AuthRepository()
 
     private val _uiState = MutableStateFlow(VaultUiState())
     val uiState: StateFlow<VaultUiState> = _uiState.asStateFlow()
+
+    // Detached background jobs that must outlive this VM (vault saves, export).
+    // Each is manually cancellable from the UI.
+    private var urlSaveJob: Job? = null
+    private var urisSaveJob: Job? = null
+    private var sendJob: Job? = null
 
     fun loadItems() {
         viewModelScope.launch {
@@ -46,31 +50,65 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveToVault(url: String, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null) {
-        // Reset tracker state before starting a new save
+    /**
+     * Save media sourced from a chat URL into the vault. Runs on the
+     * process-global [BackgroundWorkCoordinator] so it persists after the
+     * originating screen / ViewModel is destroyed and after the app is closed,
+     * with no progress notification. In-app progress is published via
+     * [VaultSaveTracker] (observed by [MediaViewerScreen]).
+     */
+    fun saveToVault(
+        url: String,
+        fileName: String,
+        mimeType: String,
+        sourceChatId: String? = null,
+        sourceMessageId: String? = null,
+    ): Job {
+        // Cancel any in-flight URL save before starting a new one.
+        urlSaveJob?.cancel()
         VaultSaveTracker.reset()
         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
 
-        // Start a foreground service so the download survives the ViewModel
-        // being cleared (e.g. when the user navigates away from the media viewer).
-        val context = getApplication<Application>()
-        val intent = Intent(context, VaultSaveService::class.java).apply {
-            putExtra(VaultSaveService.EXTRA_URL, url)
-            putExtra(VaultSaveService.EXTRA_FILE_NAME, fileName)
-            putExtra(VaultSaveService.EXTRA_MIME_TYPE, mimeType)
-            putExtra(VaultSaveService.EXTRA_SOURCE_CHAT_ID, sourceChatId)
-            putExtra(VaultSaveService.EXTRA_SOURCE_MESSAGE_ID, sourceMessageId)
+        val job = BackgroundWorkCoordinator.launch {
+            try {
+                vaultRepository.saveFromUrlWithProgress(
+                    url = url,
+                    fileName = fileName,
+                    mimeType = mimeType,
+                    sourceChatId = sourceChatId,
+                    sourceMessageId = sourceMessageId,
+                    onProgress = { completed, total ->
+                        val progress = if (total > 0) {
+                            (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+                        VaultSaveTracker.saving(progress)
+                    },
+                ).onSuccess {
+                    VaultSaveTracker.success(fileName)
+                }.onFailure { error ->
+                    VaultSaveTracker.error(error.message ?: "Save failed")
+                }
+            } catch (e: Throwable) {
+                VaultSaveTracker.error(e.message ?: "Save failed")
+            }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        urlSaveJob = job
+        return job
+    }
+
+    /** Cancels an in-flight URL save started by [saveToVault], if any. */
+    fun cancelUrlSave() {
+        urlSaveJob?.cancel()
+        urlSaveJob = null
+        VaultSaveTracker.reset()
+        _uiState.update { it.copy(isSaving = false, saveProgress = null) }
     }
 
     fun saveToVaultFromUris(uris: List<Uri>, onAllComplete: () -> Unit) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
+        urisSaveJob?.cancel()
+        _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
+
+        urisSaveJob = BackgroundWorkCoordinator.launch {
             try {
                 vaultRepository.saveFromUris(uris) { completed, total ->
                     _uiState.update { it.copy(saveProgress = completed to total) }
@@ -81,9 +119,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { it.copy(errorMessage = error.message) }
                 }
             } catch (e: Throwable) {
-                // Last-resort guard so a thrown exception can never escape the
-                // viewModelScope and tear the process down (would manifest as an
-                // app crash right after the photo picker returns).
+                // A thrown exception must never escape and crash the process;
+                // surface it as an in-app error instead.
                 _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save media") }
             } finally {
                 _uiState.update { it.copy(isSaving = false, saveProgress = null) }
@@ -91,16 +128,26 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Cancels an in-flight gallery import, if any. */
+    fun cancelUrisSave() {
+        urisSaveJob?.cancel()
+        urisSaveJob = null
+        _uiState.update { it.copy(isSaving = false, saveProgress = null) }
+    }
+
     fun saveToVaultFromUri(uri: Uri, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true) }
-            val result = vaultRepository.saveFromUri(uri, fileName, mimeType, sourceChatId, sourceMessageId)
-            result.onSuccess {
-                loadItems()
-            }.onFailure { error ->
-                _uiState.update { it.copy(errorMessage = error.message) }
+        urisSaveJob?.cancel()
+        _uiState.update { it.copy(isSaving = true) }
+        urisSaveJob = BackgroundWorkCoordinator.launch {
+            try {
+                vaultRepository.saveFromUri(uri, fileName, mimeType, sourceChatId, sourceMessageId)
+                    .onSuccess { loadItems() }
+                    .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            } catch (e: Throwable) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save media") }
+            } finally {
+                _uiState.update { it.copy(isSaving = false) }
             }
-            _uiState.update { it.copy(isSaving = false) }
         }
     }
 
@@ -134,19 +181,21 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendToChat(vaultItem: VaultItem, chatId: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSending = true, sendProgress = null) }
+        sendJob?.cancel()
+        _uiState.update { it.copy(isSending = true, sendProgress = null) }
+
+        sendJob = BackgroundWorkCoordinator.launch {
             try {
                 val bytesResult = vaultRepository.getDecryptedBytes(vaultItem)
                 bytesResult.onSuccess { bytes ->
                     val extension = vaultItem.extension
-                    val tempFile = File(
+                    val file = File(
                         getApplication<Application>().cacheDir,
                         "vault_send_${vaultItem.id}$extension"
                     )
                     try {
-                        tempFile.writeBytes(bytes)
-                        val uri = Uri.fromFile(tempFile)
+                        file.writeBytes(bytes)
+                        val uri = Uri.fromFile(file)
                         val currentUserId = authRepository.currentUser?.uid
                             ?: run {
                                 _uiState.update { it.copy(isSending = false, errorMessage = "Not signed in") }
@@ -174,11 +223,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                             contentUrl = uri.toString(),
                             fileName = vaultItem.fileName,
                         )
-                        tempFile.deleteOnExit()
                         _uiState.update { it.copy(sendProgress = 1 to 1, isSending = false, sendSuccess = true) }
                     } finally {
                         // Always reclaim the temp file, even on failure paths.
-                        runCatching { tempFile.delete() }
+                        runCatching { file.delete() }
                     }
                 }.onFailure { error ->
                     _uiState.update { it.copy(isSending = false, errorMessage = error.message) }
@@ -189,8 +237,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun getApplicationCacheDir(): java.io.File {
-        return getApplication<Application>().cacheDir
+    /** Cancels an in-flight send-to-chat, if any. */
+    fun cancelSend() {
+        sendJob?.cancel()
+        sendJob = null
+        _uiState.update { it.copy(isSending = false, sendProgress = null) }
     }
 
     fun clearError() {
@@ -271,6 +322,21 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun sendVaultItemToChat(itemId: String, chatId: String) {
         val item = _uiState.value.items.find { it.id == itemId } ?: return
         sendToChat(vaultItem = item, chatId = chatId)
+    }
+
+    /**
+     * Sends multiple vault items to the same chat in sequence. Used by the
+     * vault multiselect "Send to Chat" flow: the user picks several items, then
+     * selects a single chat; each item is loaded and uploaded on the
+     * background coordinator (persists after leaving the screen / closing the
+     * app, no notification). Clears the multiselect state once dispatched.
+     */
+    fun sendVaultItemsToChat(itemIds: List<String>, chatId: String) {
+        val itemsToSend = itemIds.mapNotNull { id ->
+            _uiState.value.items.find { it.id == id }
+        }.ifEmpty { return }
+        itemsToSend.forEach { sendToChat(vaultItem = it, chatId = chatId) }
+        _uiState.update { it.copy(selectionMode = false, selectedItems = emptySet()) }
     }
 }
 
