@@ -31,6 +31,7 @@ import com.codeshell.app.util.MessageMediaCacheEvictor
 import com.codeshell.app.util.NetworkConnectivity
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.VideoUploadProcessor
+import com.codeshell.app.util.BackgroundWorkCoordinator
 import com.codeshell.app.util.isVideoUri
 import com.codeshell.app.util.queryDisplayName
 import com.codeshell.app.util.queryFileSize
@@ -171,7 +172,10 @@ class ChatViewModel(
         if (text.isBlank()) return
         if (blockIfOffline()) return
 
-        viewModelScope.launch {
+        // Run on the process-global coordinator so the send survives the user
+        // leaving the chat screen or closing the app until it completes / is
+        // cancelled manually. No progress notification is posted.
+        BackgroundWorkCoordinator.launch {
             try {
                 _uiState.update { it.copy(isSending = true, errorMessage = null) }
                 presenceRepository.setTyping(userId, chatId, isTyping = false)
@@ -274,7 +278,12 @@ class ChatViewModel(
 
         _uiState.update { it.copy(pendingUploads = it.pendingUploads + pending, errorMessage = null) }
 
-        val job = viewModelScope.launch {
+        // Run on the process-global coordinator so the upload + send survives
+        // the user leaving the chat screen or closing the app until it
+        // completes / is cancelled manually. No progress notification is posted;
+        // in-app progress is driven via the pendingUploads UI state which the
+        // active chat screen observes.
+        val job = BackgroundWorkCoordinator.launch {
             presenceRepository.setTyping(userId, chatId, isTyping = false)
             val messageId = UUID.randomUUID().toString()
             activeUploadMessageIds[localId] = messageId

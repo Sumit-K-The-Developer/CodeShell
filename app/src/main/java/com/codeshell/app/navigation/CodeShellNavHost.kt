@@ -130,10 +130,11 @@ fun CodeShellNavHost(
             )
         }
 
-        // Check for vaultSend flag in saved state handle and get the pending item ID
+        // Check for vaultSend flag in saved state handle and get the pending item IDs.
+        // Supports both the legacy single-send path and the multiselect send path.
         val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
-        val pendingVaultSendId = com.codeshell.app.ui.vault.PendingVaultSend.consume()
-        
+        val pendingVaultSendIds = com.codeshell.app.ui.vault.PendingVaultSend.consumeAll()
+
         composable(Routes.HOME) {
             HomeScreen(
                 onNavigateBack = {
@@ -158,7 +159,7 @@ fun CodeShellNavHost(
                 onTerminalRevoked = {
                     navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
                 },
-                vaultSendItemId = pendingVaultSendId,
+                vaultSendItemIds = pendingVaultSendIds,
             )
         }
 
