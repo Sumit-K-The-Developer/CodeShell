@@ -11,6 +11,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class CodeShellApplication : Application() {
@@ -31,6 +32,13 @@ class CodeShellApplication : Application() {
             val preferences = AppPreferences(applicationContext)
             preferences.applyDailySecretEntryResetIfDue()
             SecretEntryResetScheduler.scheduleNextReset(applicationContext)
+            // Keep the share alias component state in sync with the stored
+            // preference: app updates / OEM quirks can otherwise reset the
+            // runtime component state back to the manifest default (disabled).
+            SharePanelController.apply(
+                applicationContext,
+                preferences.sharePanelEnabled.first(),
+            )
         }
     }
 

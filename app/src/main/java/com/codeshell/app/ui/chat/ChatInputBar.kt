@@ -87,6 +87,7 @@ fun ChatInputBar(
     onTakePhoto: () -> Unit,
     onPickFile: () -> Unit,
     theme: ChatTheme,
+    hasDrafts: Boolean = false,
     replyTarget: ReplyTarget? = null,
     replyAuthorLabel: String = "",
     onClearReply: () -> Unit = {},
@@ -242,8 +243,8 @@ fun ChatInputBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val canSend = inputText.isNotBlank() && !isSending
-            val sendFilled = inputText.isNotBlank() || isSending
+            val canSend = (inputText.isNotBlank() || hasDrafts) && !isSending
+            val sendFilled = inputText.isNotBlank() || hasDrafts || isSending
             val inputRowModifier = if (isMultiline) {
                 Modifier
                     .weight(1f)

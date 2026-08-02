@@ -157,69 +157,85 @@ private fun MessageBody(
     when (message.type) {
         MessageType.IMAGE -> {
             val url = message.mediaUrl
-            if (url != null) {
-                ChatMediaPreview(
-                    model = url,
-                    imageLoader = imageLoader,
-                    contentDescription = stringResource(R.string.image_output),
-                    borderColor = colors.mutedText.copy(alpha = 0.35f),
-                    fillWidth = false,
-                    showPlayOverlay = false,
-                    useLocalVideoThumbnail = false,
-                    previewHeight = theme.mediaPreviewHeight,
-                    previewCorner = theme.mediaPreviewCorner,
-                    borderWidth = theme.mediaBorderWidth,
-                    compact = theme.compactMediaAttachments,
-                    onClick = if (mediaClickEnabled) {
-                        { onOpenMedia(MessageType.IMAGE, url, message.fileName ?: "image.jpg", message.id) }
-                    } else {
-                        null
-                    },
-                    onLongClick = onLongPress,
-                )
-            } else {
-                MediaPlaceholderRow(
-                    icon = { Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent) },
-                    label = stringResource(R.string.image_output),
-                    textColor = colors.text,
+            Column(modifier = Modifier.widthIn(max = 220.dp)) {
+                if (url != null) {
+                    ChatMediaPreview(
+                        model = url,
+                        imageLoader = imageLoader,
+                        contentDescription = stringResource(R.string.image_output),
+                        borderColor = colors.mutedText.copy(alpha = 0.35f),
+                        fillWidth = false,
+                        showPlayOverlay = false,
+                        useLocalVideoThumbnail = false,
+                        previewHeight = theme.mediaPreviewHeight,
+                        previewCorner = theme.mediaPreviewCorner,
+                        borderWidth = theme.mediaBorderWidth,
+                        compact = theme.compactMediaAttachments,
+                        onClick = if (mediaClickEnabled) {
+                            { onOpenMedia(MessageType.IMAGE, url, message.fileName ?: "image.jpg", message.id) }
+                        } else {
+                            null
+                        },
+                        onLongClick = onLongPress,
+                    )
+                } else {
+                    MediaPlaceholderRow(
+                        icon = { Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent) },
+                        label = stringResource(R.string.image_output),
+                        textColor = colors.text,
+                    )
+                }
+                MediaCaption(
+                    caption = message.caption,
+                    theme = theme,
+                    onOpenLink = onOpenLink,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }
 
         MessageType.VIDEO -> {
             val url = message.mediaUrl
-            if (url != null) {
-                ChatMediaPreview(
-                    model = url,
-                    imageLoader = imageLoader,
-                    contentDescription = stringResource(R.string.video_output),
-                    borderColor = colors.mutedText.copy(alpha = 0.35f),
-                    fillWidth = false,
-                    showPlayOverlay = true,
-                    useLocalVideoThumbnail = false,
-                    previewHeight = theme.mediaPreviewHeight,
-                    previewCorner = theme.mediaPreviewCorner,
-                    borderWidth = theme.mediaBorderWidth,
-                    compact = theme.compactMediaAttachments,
-                    onClick = if (mediaClickEnabled) {
-                        { onOpenMedia(MessageType.VIDEO, url, message.fileName ?: "video.mp4", message.id) }
-                    } else {
-                        null
-                    },
-                    onLongClick = onLongPress,
-                )
-            } else {
-                MediaPlaceholderRow(
-                    icon = {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = colors.accent,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    },
-                    label = stringResource(R.string.video_output),
-                    textColor = colors.text,
+            Column(modifier = Modifier.widthIn(max = 220.dp)) {
+                if (url != null) {
+                    ChatMediaPreview(
+                        model = url,
+                        imageLoader = imageLoader,
+                        contentDescription = stringResource(R.string.video_output),
+                        borderColor = colors.mutedText.copy(alpha = 0.35f),
+                        fillWidth = false,
+                        showPlayOverlay = true,
+                        useLocalVideoThumbnail = false,
+                        previewHeight = theme.mediaPreviewHeight,
+                        previewCorner = theme.mediaPreviewCorner,
+                        borderWidth = theme.mediaBorderWidth,
+                        compact = theme.compactMediaAttachments,
+                        onClick = if (mediaClickEnabled) {
+                            { onOpenMedia(MessageType.VIDEO, url, message.fileName ?: "video.mp4", message.id) }
+                        } else {
+                            null
+                        },
+                        onLongClick = onLongPress,
+                    )
+                } else {
+                    MediaPlaceholderRow(
+                        icon = {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = colors.accent,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        },
+                        label = stringResource(R.string.video_output),
+                        textColor = colors.text,
+                    )
+                }
+                MediaCaption(
+                    caption = message.caption,
+                    theme = theme,
+                    onOpenLink = onOpenLink,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }
@@ -303,6 +319,12 @@ private fun MessageBody(
                     color = colors.accent,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                MediaCaption(
+                    caption = message.caption,
+                    theme = theme,
+                    onOpenLink = onOpenLink,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
 
@@ -322,12 +344,31 @@ private fun MessageBody(
 }
 
 @Composable
+private fun MediaCaption(
+    caption: String?,
+    theme: ChatTheme,
+    onOpenLink: ((url: String, title: String) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val text = caption?.takeIf { it.isNotBlank() } ?: return
+    LinkableMessageText(
+        text = text,
+        color = theme.colors.text,
+        linkColor = theme.colors.accent,
+        style = messageTextStyle(theme),
+        onOpenLink = onOpenLink,
+        modifier = modifier,
+    )
+}
+
+@Composable
 private fun LinkableMessageText(
     text: String,
     color: Color,
     linkColor: Color,
     style: TextStyle,
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
+    modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
     val matches = remember(text) { URL_PATTERN.findAll(text).toList() }
@@ -336,6 +377,7 @@ private fun LinkableMessageText(
             text = text,
             color = color,
             style = style,
+            modifier = modifier,
         )
         return
     }
@@ -366,6 +408,7 @@ private fun LinkableMessageText(
     ClickableText(
         text = annotated,
         style = style.copy(color = color),
+        modifier = modifier,
         onClick = { offset ->
             annotated
                 .getStringAnnotations(URL_TAG, offset, offset)

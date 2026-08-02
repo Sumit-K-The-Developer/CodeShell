@@ -595,6 +595,14 @@ class HomeViewModel(
         _uiState.update { it.copy(pendingVaultSend = false) }
     }
 
+    fun enterSelectionModeForSharedSend() {
+        _uiState.update { it.copy(selectionMode = true, selectedChatIds = emptySet(), pendingSharedSend = true) }
+    }
+
+    fun clearSharedSendFlag() {
+        _uiState.update { it.copy(pendingSharedSend = false) }
+    }
+
     fun cancelSelection() {
         _uiState.update { it.copy(selectionMode = false, selectedChatIds = emptySet()) }
     }
@@ -705,4 +713,5 @@ data class HomeUiState(
     val incomingCallsByChatId: Map<String, CallType> = emptyMap(),
     val profilePicturesEnabled: Boolean = false,
     val pendingVaultSend: Boolean = false,
+    val pendingSharedSend: Boolean = false,
 )

@@ -141,6 +141,13 @@
     <string name="pending_share_title">Choose a session to share</string>
     <string name="pending_share_text_desc">Open a session to place this link in the input bar.</string>
     <string name="pending_share_video_desc">Open a session to share this video.</string>
+    <string name="pending_share_image_desc">Open a session to share this photo.</string>
+    <string name="pending_share_file_desc">Open a session to share this file.</string>
+    <string name="send_to_chat">Send to Chat</string>
+    <string name="save_to_vault">Save to Vault</string>
+    <string name="saved_to_vault">Saved to Vault</string>
+    <string name="vault_send_hint">Select a tile to send.</string>
+    <string name="draft_ready_to_send">Ready to send</string>
     <string name="terminal_alert_channel">Terminal alerts</string>
     <string name="terminal_alert_channel_desc">Notifications for new terminal session activity</string>
     <string name="terminal_alert_message_body">New learning snippet available</string>

@@ -90,14 +90,10 @@ fun CodeShellNavHost(
         navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
     }
 
-    LaunchedEffect(activity?.shareOpenTick) {
-        if (activity?.shareOpenTick == 0) return@LaunchedEffect
-        if (!authRepository.isLoggedIn) return@LaunchedEffect
-        navController.navigate(Routes.home()) {
-            popUpTo(Routes.CODING_LEARN) { saveState = true }
-            launchSingleTop = true
-        }
-    }
+    // NOTE: Externally shared content is deliberately NOT auto-routed to the
+    // conversation tile page. The disguise shell must stay in front so the
+    // user reaches the terminal on their own (e.g. via the secret entry); the
+    // shared content then surfaces as a banner on the conversation tile page.
 
     NavHost(
         navController = navController,

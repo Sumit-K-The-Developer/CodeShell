@@ -12,6 +12,7 @@ import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.util.BackgroundWorkCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var urlSaveJob: Job? = null
     private var urisSaveJob: Job? = null
     private var sendJob: Job? = null
+
+    // Items staged for deletion that can still be restored via the Undo action.
+    // The real disk deletion is deferred until the undo window elapses.
+    private var pendingDeleteJob: Job? = null
+    private var pendingDeleteItems: List<VaultItem> = emptyList()
 
     fun loadItems() {
         viewModelScope.launch {
@@ -135,12 +141,19 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isSaving = false, saveProgress = null) }
     }
 
-    fun saveToVaultFromUri(uri: Uri, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null) {
+    fun saveToVaultFromUri(
+        uri: Uri,
+        fileName: String,
+        mimeType: String,
+        sourceChatId: String? = null,
+        sourceMessageId: String? = null,
+        deleteSource: Boolean = true,
+    ) {
         urisSaveJob?.cancel()
         _uiState.update { it.copy(isSaving = true) }
         urisSaveJob = BackgroundWorkCoordinator.launch {
             try {
-                vaultRepository.saveFromUri(uri, fileName, mimeType, sourceChatId, sourceMessageId)
+                vaultRepository.saveFromUri(uri, fileName, mimeType, sourceChatId, sourceMessageId, deleteSource = deleteSource)
                     .onSuccess { loadItems() }
                     .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             } catch (e: Throwable) {
@@ -305,16 +318,57 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteItemWithUndo(item: VaultItem) {
+        stageDeletion(listOf(item))
+    }
+
     fun deleteSelectedItems() {
         val itemsToDelete = _uiState.value.items.filter { it.id in _uiState.value.selectedItems }
         if (itemsToDelete.isEmpty()) return
+        stageDeletion(itemsToDelete)
+    }
 
-        viewModelScope.launch {
-            itemsToDelete.forEach { item ->
-                vaultRepository.deleteItem(item)
-            }
-            loadItems()
-            _uiState.update { it.copy(selectionMode = false, selectedItems = emptySet()) }
+    /**
+     * Removes [items] from the UI immediately but defers the real disk
+     * deletion until the undo window elapses, so the Undo action can restore
+     * them. Any previously staged (not yet flushed) batch is deleted first so
+     * repeated deletes never leak files back into the vault on restart.
+     */
+    private fun stageDeletion(items: List<VaultItem>) {
+        pendingDeleteJob?.cancel()
+        if (pendingDeleteItems.isNotEmpty()) {
+            val toFlush = pendingDeleteItems
+            pendingDeleteItems = emptyList()
+            viewModelScope.launch { toFlush.forEach { vaultRepository.deleteItem(it) } }
+        }
+        val stagedIds = items.mapTo(mutableSetOf()) { it.id }
+        pendingDeleteItems = items
+        _uiState.update { state ->
+            state.copy(
+                items = state.items.filterNot { it.id in stagedIds },
+                selectionMode = false,
+                selectedItems = emptySet(),
+            )
+        }
+        pendingDeleteJob = viewModelScope.launch {
+            delay(DELETE_UNDO_WINDOW_MS)
+            val toDelete = pendingDeleteItems
+            pendingDeleteItems = emptyList()
+            toDelete.forEach { vaultRepository.deleteItem(it) }
+        }
+    }
+
+    /** Restores the most recently staged (undo-pending) deletion, if any. */
+    fun undoPendingDelete() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        if (pendingDeleteItems.isEmpty()) return
+        val restored = pendingDeleteItems
+        pendingDeleteItems = emptyList()
+        _uiState.update { state ->
+            state.copy(
+                items = (restored + state.items).sortedByDescending { it.dateSaved },
+            )
         }
     }
 
@@ -337,6 +391,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }.ifEmpty { return }
         itemsToSend.forEach { sendToChat(vaultItem = it, chatId = chatId) }
         _uiState.update { it.copy(selectionMode = false, selectedItems = emptySet()) }
+    }
+
+    companion object {
+        // Give the Snackbar's Undo action a chance to run before the real
+        // disk deletion is performed (SnackbarDuration.Short is ~4s).
+        private const val DELETE_UNDO_WINDOW_MS = 8_000L
     }
 }
 

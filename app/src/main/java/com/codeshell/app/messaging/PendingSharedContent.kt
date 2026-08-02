@@ -5,6 +5,9 @@ import android.net.Uri
 data class SharedContent(
     val text: String? = null,
     val videoUri: Uri? = null,
+    val imageUri: Uri? = null,
+    val fileUri: Uri? = null,
+    val fileMimeType: String? = null,
 )
 
 object PendingSharedContent {

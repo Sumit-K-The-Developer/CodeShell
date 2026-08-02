@@ -1,0 +1,158 @@
+[1mdiff --git a/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt b/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt[m
+[1mindex bcb72a1..b73428f 100644[m
+[1m--- a/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt[m
+[1m+++ b/app/src/main/java/com/codeshell/app/ui/vault/VaultViewModel.kt[m
+[36m@@ -50,13 +50,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         }[m
+     }[m
+ [m
+[31m-    /**[m
+[31m-     * Save media sourced from a chat URL into the vault. Runs on the[m
+[31m-     * process-global [BackgroundWorkCoordinator] so it persists after the[m
+[31m-     * originating screen / ViewModel is destroyed and after the app is closed,[m
+[31m-     * with no progress notification. In-app progress is published via[m
+[31m-     * [VaultSaveTracker] (observed by [MediaViewerScreen]).[m
+[31m-     */[m
+     fun saveToVault([m
+         url: String,[m
+         fileName: String,[m
+[36m@@ -64,7 +57,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         sourceChatId: String? = null,[m
+         sourceMessageId: String? = null,[m
+     ): Job {[m
+[31m-        // Cancel any in-flight URL save before starting a new one.[m
+         urlSaveJob?.cancel()[m
+         VaultSaveTracker.reset()[m
+         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }[m
+[36m@@ -96,7 +88,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         return job[m
+     }[m
+ [m
+[31m-    /** Cancels an in-flight URL save started by [saveToVault], if any. */[m
+     fun cancelUrlSave() {[m
+         urlSaveJob?.cancel()[m
+         urlSaveJob = null[m
+[36m@@ -104,7 +95,10 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         _uiState.update { it.copy(isSaving = false, saveProgress = null) }[m
+     }[m
+ [m
+[31m-    fun saveToVaultFromUris(uris: List<Uri>, onAllComplete: () -> Unit) {[m
+[32m+[m[32m    fun saveToVaultFromUris([m
+[32m+[m[32m        uris: List<Uri>,[m
+[32m+[m[32m        onAllComplete: () -> Unit,[m
+[32m+[m[32m    ) {[m
+         urisSaveJob?.cancel()[m
+         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }[m
+ [m
+[36m@@ -112,15 +106,15 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+             try {[m
+                 vaultRepository.saveFromUris(uris) { completed, total ->[m
+                     _uiState.update { it.copy(saveProgress = completed to total) }[m
+[31m-                }.onSuccess {[m
+[32m+[m[32m                }.onSuccess { savedPairs ->[m
+                     loadItems()[m
+[32m+[m[32m                    val sourceUris = savedPairs.map { it.first }[m
+[32m+[m[32m                    _uiState.update { it.copy(pendingSourceDeleteUris = sourceUris) }[m
+                     onAllComplete()[m
+                 }.onFailure { error ->[m
+                     _uiState.update { it.copy(errorMessage = error.message) }[m
+                 }[m
+             } catch (e: Throwable) {[m
+[31m-                // A thrown exception must never escape and crash the process;[m
+[31m-                // surface it as an in-app error instead.[m
+                 _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save media") }[m
+             } finally {[m
+                 _uiState.update { it.copy(isSaving = false, saveProgress = null) }[m
+[36m@@ -128,7 +122,14 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         }[m
+     }[m
+ [m
+[31m-    /** Cancels an in-flight gallery import, if any. */[m
+[32m+[m[32m    fun clearItemSelection() {[m
+[32m+[m[32m        _uiState.update { it.copy(selectionMode = false, selectedItems = emptySet()) }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    fun consumePendingSourceDelete() {[m
+[32m+[m[32m        _uiState.update { it.copy(pendingSourceDeleteUris = emptyList()) }[m
+[32m+[m[32m    }[m
+[32m+[m
+     fun cancelUrisSave() {[m
+         urisSaveJob?.cancel()[m
+         urisSaveJob = null[m
+[36m@@ -159,10 +160,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         return vaultRepository.getThumbnailBytes(item)[m
+     }[m
+ [m
+[31m-    /**[m
+[31m-     * Resolves the on-disk file for [item]. Must be called off the main thread[m
+[31m-     * (it touches the filesystem). Returns null when the backing file is gone.[m
+[31m-     */[m
+     suspend fun getVaultFile(item: VaultItem): File? = withContext(Dispatchers.IO) {[m
+         vaultRepository.getVaultFile(item)?.takeIf { it.exists() }[m
+     }[m
+[36m@@ -172,6 +169,7 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+             _uiState.update { it.copy(isExporting = true) }[m
+             vaultRepository.moveToGallery(item)[m
+                 .onSuccess {[m
+[32m+[m[32m                    loadItems()[m
+                     _uiState.update { it.copy(exportSuccess = true, isExporting = false) }[m
+                 }[m
+                 .onFailure { error ->[m
+[36m@@ -180,6 +178,31 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         }[m
+     }[m
+ [m
+[32m+[m[32m    fun moveSelectedToGallery() {[m
+[32m+[m[32m        val itemsToMove = _uiState.value.items.filter { it.id in _uiState.value.selectedItems }[m
+[32m+[m[32m        if (itemsToMove.isEmpty()) return[m
+[32m+[m
+[32m+[m[32m        viewModelScope.launch {[m
+[32m+[m[32m            _uiState.update { it.copy(isExporting = true) }[m
+[32m+[m[32m            var lastError: String? = null[m
+[32m+[m[32m            itemsToMove.forEach { item ->[m
+[32m+[m[32m                vaultRepository.moveToGallery(item).onFailure { error ->[m
+[32m+[m[32m                    lastError = error.message[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            _uiState.update {[m
+[32m+[m[32m                it.copy([m
+[32m+[m[32m                    isExporting = false,[m
+[32m+[m[32m                    exportSuccess = true,[m
+[32m+[m[32m                    selectionMode = false,[m
+[32m+[m[32m                    selectedItems = emptySet(),[m
+[32m+[m[32m                    errorMessage = lastError[m
+[32m+[m[32m                )[m
+[32m+[m[32m            }[m
+[32m+[m[32m            loadItems()[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+     fun sendToChat(vaultItem: VaultItem, chatId: String) {[m
+         sendJob?.cancel()[m
+         _uiState.update { it.copy(isSending = true, sendProgress = null) }[m
+[36m@@ -225,7 +248,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+                         )[m
+                         _uiState.update { it.copy(sendProgress = 1 to 1, isSending = false, sendSuccess = true) }[m
+                     } finally {[m
+[31m-                        // Always reclaim the temp file, even on failure paths.[m
+                         runCatching { file.delete() }[m
+                     }[m
+                 }.onFailure { error ->[m
+[36m@@ -237,7 +259,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         }[m
+     }[m
+ [m
+[31m-    /** Cancels an in-flight send-to-chat, if any. */[m
+     fun cancelSend() {[m
+         sendJob?.cancel()[m
+         sendJob = null[m
+[36m@@ -248,10 +269,6 @@[m [mclass VaultViewModel(application: Application) : AndroidViewModel(application) {[m
+         _uiState.update { it.copy(errorMessage = null, sendSuccess = false, exportSuccess = false) }[m
+     }[m
+ [m
+[31m-    fun clearSelection() {[m
+[31m-        _uiState.update { it.copy(selectedItem = null, showChatPicker = false, selectionMode = false, selectedItems = emptySet()) }[m
+[31m-    }[m
+[31m-[m
+     fun selectItem(item: VaultItem?) {[m
+         _ui

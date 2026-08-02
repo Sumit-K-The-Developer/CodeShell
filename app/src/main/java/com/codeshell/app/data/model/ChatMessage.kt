@@ -31,6 +31,7 @@ data class ChatMessage(
     val content: String = "",
     val fileName: String? = null,
     val fileSize: Long? = null,
+    val caption: String? = null,
     val timestamp: Timestamp? = null,
     val delivered: Boolean = false,
     val read: Boolean = false,

@@ -42,9 +42,9 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
@@ -60,6 +60,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,6 +75,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,8 +117,10 @@ import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.MainActivity
 import com.codeshell.app.data.auth.BotAccountConstants
+import com.codeshell.app.messaging.PendingChatDraft
 import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.util.MediaPreloadCache
+import com.codeshell.app.util.queryDisplayName
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.findActivity
 import com.codeshell.app.ui.vault.VaultViewModel
@@ -124,6 +129,7 @@ import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,6 +148,7 @@ fun HomeScreen(
     val focusManager = LocalFocusManager.current
     val viewModel: HomeViewModel = viewModel { HomeViewModel(app) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val vaultUiState by vaultViewModel.uiState.collectAsStateWithLifecycle()
     val chatTheme = rememberAdaptiveChatTheme(uiState.chatInterfaceStyle)
     val listColors = chatTheme.colors
     val profileDigits = UsernameFormatter.parseRawInput(uiState.profile?.username.orEmpty())
@@ -152,6 +159,8 @@ fun HomeScreen(
     var searchActivated by remember { mutableStateOf(false) }
     var expandedProfilePhotoUrl by remember { mutableStateOf<String?>(null) }
     var pendingSharedContent by remember { mutableStateOf(PendingSharedContent.peek()) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val searchActive = searchActivated || uiState.searchQuery.isNotEmpty()
     val gridState = rememberLazyGridState()
     val (bumpActivity, activityGeneration) = rememberTerminalActivity()
@@ -164,6 +173,12 @@ fun HomeScreen(
         pendingSharedContent = PendingSharedContent.peek()
     }
 
+    LaunchedEffect(vaultUiState.errorMessage) {
+        val message = vaultUiState.errorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        vaultViewModel.clearError()
+    }
+
     // Handle vault send flow - load vault items and enter selection mode when coming from vault
     LaunchedEffect(vaultSendItemIds) {
         if (vaultSendItemIds.isNotEmpty()) {
@@ -173,15 +188,28 @@ fun HomeScreen(
     }
 
     // Handle sending vault items when selection changes during vault send.
-    // Supports a single item (legacy single-send) or multiple items (multiselect send).
+    // The selected chat is opened with the vault items dropped in as drafts
+    // (pending attachments) instead of auto-sending them.
     LaunchedEffect(uiState.selectedChatIds, uiState.pendingVaultSend) {
         if (uiState.pendingVaultSend && uiState.selectedChatIds.isNotEmpty()) {
             val chatId = uiState.selectedChatIds.first()
             if (vaultSendItemIds.isNotEmpty()) {
-                vaultViewModel.sendVaultItemsToChat(vaultSendItemIds, chatId)
+                PendingChatDraft.set(vaultSendItemIds)
                 viewModel.clearVaultSendFlag()
             }
             viewModel.cancelSelection()
+            onOpenChat(chatId)
+        }
+    }
+
+    // Shared content "Send to Chat": pick a tile, then open that chat where the
+    // shared content is turned into a draft (never auto-sent).
+    LaunchedEffect(uiState.selectedChatIds, uiState.pendingSharedSend) {
+        if (uiState.pendingSharedSend && uiState.selectedChatIds.isNotEmpty()) {
+            val chatId = uiState.selectedChatIds.first()
+            viewModel.clearSharedSendFlag()
+            viewModel.cancelSelection()
+            onOpenChat(chatId)
         }
     }
 
@@ -293,6 +321,7 @@ fun HomeScreen(
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = listColors.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -379,6 +408,17 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             OfflineBanner(colors = listColors)
+            if (uiState.selectionMode &&
+                (uiState.pendingVaultSend || uiState.pendingSharedSend)
+            ) {
+                SendModeHintBar(
+                    text = stringResource(R.string.vault_send_hint),
+                    colors = listColors,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             if (!uiState.selectionMode) {
                 SearchBar(
                     query = uiState.searchQuery,
@@ -436,10 +476,42 @@ fun HomeScreen(
             HorizontalDivider(color = listColors.mutedText.copy(alpha = 0.15f))
 
             pendingSharedContent?.let { content ->
+                val mediaUri = content.videoUri ?: content.imageUri
+                val description = when {
+                    content.videoUri != null -> context.getString(R.string.pending_share_video_desc)
+                    content.imageUri != null -> context.getString(R.string.pending_share_image_desc)
+                    content.fileUri != null -> context.getString(R.string.pending_share_file_desc)
+                    !content.text.isNullOrBlank() -> content.text
+                    else -> context.getString(R.string.pending_share_text_desc)
+                }
                 PendingShareBanner(
-                    hasVideo = content.videoUri != null,
-                    text = content.text,
+                    description = description,
+                    showSaveToVault = mediaUri != null,
                     colors = listColors,
+                    onSendToChat = {
+                        viewModel.enterSelectionModeForSharedSend()
+                    },
+                    onSaveToVault = {
+                        val uri = mediaUri
+                        if (uri != null) {
+                            val resolver = context.contentResolver
+                            val mimeType = resolver.getType(uri) ?: "*/*"
+                            val fileName = queryDisplayName(resolver, uri) ?: "shared_media"
+                            vaultViewModel.saveToVaultFromUri(
+                                uri = uri,
+                                fileName = fileName,
+                                mimeType = mimeType,
+                                deleteSource = false,
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.saved_to_vault)
+                                )
+                            }
+                        }
+                        PendingSharedContent.clear()
+                        pendingSharedContent = null
+                    },
                     onDismiss = {
                         PendingSharedContent.clear()
                         pendingSharedContent = null
@@ -550,7 +622,7 @@ fun HomeScreen(
                 selectedCount = uiState.selectedChatIds.size,
                 enabled = uiState.selectedChatIds.isNotEmpty() && !uiState.isDeleting,
                 colors = listColors,
-                isVaultSendMode = uiState.pendingVaultSend,
+                isVaultSendMode = uiState.pendingVaultSend || uiState.pendingSharedSend,
                 onSend = {
                     // Already handled in LaunchedEffect
                 },
@@ -577,9 +649,11 @@ fun HomeScreen(
 
 @Composable
 private fun PendingShareBanner(
-    hasVideo: Boolean,
-    text: String?,
+    description: String,
+    showSaveToVault: Boolean,
     colors: ChatThemeColors,
+    onSendToChat: () -> Unit,
+    onSaveToVault: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -588,35 +662,93 @@ private fun PendingShareBanner(
         color = colors.accent.copy(alpha = 0.18f),
         shape = RoundedCornerShape(18.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.pending_share_title),
-                    color = colors.text,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Text(
-                    text = when {
-                        hasVideo -> stringResource(R.string.pending_share_video_desc)
-                        !text.isNullOrBlank() -> text
-                        else -> stringResource(R.string.pending_share_text_desc)
-                    },
-                    color = colors.mutedText,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.pending_share_title),
+                        color = colors.text,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(
+                        text = description,
+                        color = colors.mutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.cancel),
+                        tint = colors.text,
+                    )
+                }
             }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cancel),
-                    tint = colors.text,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    onClick = onSendToChat,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        text = stringResource(R.string.send_to_chat),
+                        color = colors.accent,
+                    )
+                }
+                if (showSaveToVault) {
+                    TextButton(
+                        onClick = onSaveToVault,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.save_to_vault),
+                            color = colors.accent,
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SendModeHintBar(
+    text: String,
+    colors: ChatThemeColors,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = colors.topBar,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 3.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Send,
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                color = colors.text,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }

@@ -1,12 +1,11 @@
 package com.codeshell.app.ui.settings
 
 import android.app.Application
-import android.content.ComponentName
-import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.R
+import com.codeshell.app.SharePanelController
 import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.UserProfile
 import com.codeshell.app.data.preferences.AppPreferences
@@ -177,22 +176,26 @@ class SettingsViewModel(
         viewModelScope.launch {
             appPreferences.setSharePanelEnabled(enabled)
             setShareAliasEnabled(enabled)
+            val app = getApplication<Application>()
+            val componentOn = SharePanelController.isEnabled(app)
+            _uiState.update {
+                it.copy(
+                    successMessage = if (enabled) {
+                        if (componentOn) {
+                            "Share panel ON. If the app still doesn't appear, force-stop or restart the app once."
+                        } else {
+                            "Share panel: the share component did not enable. Restart the app and try again."
+                        }
+                    } else {
+                        "Share panel OFF. The app is hidden from the share sheet."
+                    }
+                )
+            }
         }
     }
 
     private fun setShareAliasEnabled(enabled: Boolean) {
-        val app = getApplication<Application>()
-        val component = ComponentName(app, "${app.packageName}.ShareActivityAlias")
-        val state = if (enabled) {
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        } else {
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-        }
-        app.packageManager.setComponentEnabledSetting(
-            component,
-            state,
-            PackageManager.DONT_KILL_APP,
-        )
+        SharePanelController.apply(getApplication(), enabled)
     }
 
     fun uploadProfilePhoto(uri: Uri) {

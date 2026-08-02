@@ -90,6 +90,7 @@ class MessageRepository(
         contentUrl: String,
         fileName: String? = null,
         fileSize: Long? = null,
+        caption: String? = null,
         messageId: String? = null,
         reply: MessageReply? = null,
     ): Result<Unit> {
@@ -112,6 +113,7 @@ class MessageRepository(
                 put(FIELD_DELETED, false)
                 fileName?.let { put(FIELD_FILE_NAME, it) }
                 fileSize?.let { put(FIELD_FILE_SIZE, it) }
+                caption?.takeIf { it.isNotBlank() }?.let { put(FIELD_CAPTION, it) }
                 putAll(replyFields(reply))
             }
 
@@ -495,6 +497,7 @@ class MessageRepository(
             content = getString(FIELD_CONTENT).orEmpty(),
             fileName = getString(FIELD_FILE_NAME),
             fileSize = getLong(FIELD_FILE_SIZE),
+            caption = getString(FIELD_CAPTION),
             timestamp = timestamp,
             delivered = getBoolean(FIELD_DELIVERED) == true,
             read = getBoolean(FIELD_READ) == true,
@@ -527,6 +530,7 @@ class MessageRepository(
         const val FIELD_CONTENT = "content"
         const val FIELD_FILE_NAME = "fileName"
         const val FIELD_FILE_SIZE = "fileSize"
+        const val FIELD_CAPTION = "caption"
         const val FIELD_TIMESTAMP = "timestamp"
         const val FIELD_EXPIRES_AT = "expiresAt"
         const val FIELD_UNSEEN_EXPIRES_AT = "unseenExpiresAt"

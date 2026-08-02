@@ -19,8 +19,11 @@ import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.data.repository.PresenceRepository
 import com.codeshell.app.data.repository.StorageRepository
 import com.codeshell.app.data.repository.UserRepository
+import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.messaging.LocalActiveChatStore
 import com.codeshell.app.messaging.MessageReceiptCoordinator
+import com.codeshell.app.messaging.PendingChatDraft
+import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.messaging.TerminalNotificationManager
 import com.codeshell.app.util.ChatMessageFontScale
 import com.codeshell.app.util.FirestoreErrors
@@ -41,6 +44,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +64,7 @@ class ChatViewModel(
     private val storageRepository: StorageRepository = StorageRepository(),
     private val presenceRepository: PresenceRepository = PresenceRepository(),
     private val userRepository: UserRepository = UserRepository(),
+    private val vaultRepository: VaultRepository = VaultRepository(application),
     private val appPreferences: AppPreferences = AppPreferences(application)
 ) : AndroidViewModel(application) {
 
@@ -169,36 +174,139 @@ class ChatViewModel(
         val userId = currentUserId ?: return
         val recipientId = _uiState.value.otherUserId ?: return
         val text = _uiState.value.inputText
-        if (text.isBlank()) return
+        val drafts = _uiState.value.draftMedia
+        if (text.isBlank() && drafts.isEmpty()) return
         if (blockIfOffline()) return
 
-        // Run on the process-global coordinator so the send survives the user
-        // leaving the chat screen or closing the app until it completes / is
-        // cancelled manually. No progress notification is posted.
-        BackgroundWorkCoordinator.launch {
-            try {
-                _uiState.update { it.copy(isSending = true, errorMessage = null) }
-                presenceRepository.setTyping(userId, chatId, isTyping = false)
-                val reply = _uiState.value.replyTarget?.toMessageReply()
-                val result = messageRepository.sendTextMessage(
-                    chatId = chatId,
-                    senderId = userId,
-                    recipientId = recipientId,
-                    text = text,
-                    reply = reply,
+        // Draft attachments are dispatched first. Each one uploads and sends on
+        // the process-global coordinator; progress surfaces via pendingUploads.
+        // They are removed from the draft list immediately so the user cannot
+        // re-trigger them by pressing send again. Typed text accompanies the
+        // first draft as a caption inside the media bubble (like attaching text
+        // to media), so it is not sent as a separate message.
+        if (drafts.isNotEmpty()) {
+            val caption = text.takeIf { it.isNotBlank() }
+            _uiState.update {
+                it.copy(
+                    draftMedia = emptyList(),
+                    inputText = if (caption != null) "" else it.inputText,
                 )
-                _uiState.update {
-                    it.copy(
-                        inputText = if (result.isSuccess) "" else it.inputText,
-                        replyTarget = if (result.isSuccess) null else it.replyTarget,
-                        errorMessage = messagingErrorMessage(result.exceptionOrNull()),
+            }
+            if (caption != null) {
+                viewModelScope.launch { appPreferences.clearChatDraft(chatId) }
+            }
+            drafts.forEachIndexed { index, draft ->
+                uploadMedia(
+                    uri = draft.localUri,
+                    type = draft.type,
+                    fileName = draft.fileName,
+                    fileSize = draft.fileSize,
+                    caption = if (index == 0) caption else null,
+                )
+            }
+        }
+
+        if (drafts.isEmpty() && text.isNotBlank()) {
+            // Run on the process-global coordinator so the send survives the user
+            // leaving the chat screen or closing the app until it completes / is
+            // cancelled manually. No progress notification is posted.
+            BackgroundWorkCoordinator.launch {
+                try {
+                    _uiState.update { it.copy(isSending = true, errorMessage = null) }
+                    presenceRepository.setTyping(userId, chatId, isTyping = false)
+                    val reply = _uiState.value.replyTarget?.toMessageReply()
+                    val result = messageRepository.sendTextMessage(
+                        chatId = chatId,
+                        senderId = userId,
+                        recipientId = recipientId,
+                        text = text,
+                        reply = reply,
+                    )
+                    _uiState.update {
+                        it.copy(
+                            inputText = if (result.isSuccess) "" else it.inputText,
+                            replyTarget = if (result.isSuccess) null else it.replyTarget,
+                            errorMessage = messagingErrorMessage(result.exceptionOrNull()),
+                        )
+                    }
+                    if (result.isSuccess) {
+                        appPreferences.clearChatDraft(chatId)
+                    }
+                } finally {
+                    _uiState.update { it.copy(isSending = false) }
+                }
+            }
+        }
+    }
+
+    fun addDraftMedia(uri: Uri, type: MessageType, fileName: String?, fileSize: Long?) {
+        val draft = DraftMedia(
+            localId = UUID.randomUUID().toString(),
+            type = type,
+            localUri = uri,
+            fileName = fileName,
+            fileSize = fileSize,
+        )
+        _uiState.update { it.copy(draftMedia = it.draftMedia + draft) }
+    }
+
+    fun removeDraftMedia(localId: String) {
+        _uiState.update { it.copy(draftMedia = it.draftMedia.filterNot { it.localId == localId }) }
+    }
+
+    /**
+     * Turns the pending vault-send items (selected on the conversation tile
+     * page) into draft attachments referencing the on-disk vault files. Nothing
+     * is uploaded or sent until the user presses send.
+     */
+    fun addVaultDrafts(itemIds: List<String>) {
+        if (itemIds.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val allItems = vaultRepository.getAllItems()
+            allItems.filter { it.id in itemIds }.forEach { item ->
+                val file = vaultRepository.getVaultFile(item)
+                if (file != null && file.exists()) {
+                    addDraftMedia(
+                        uri = Uri.fromFile(file),
+                        type = if (item.isVideo) MessageType.VIDEO else MessageType.IMAGE,
+                        fileName = item.fileName,
+                        fileSize = item.fileSize,
                     )
                 }
-                if (result.isSuccess) {
-                    appPreferences.clearChatDraft(chatId)
+            }
+        }
+    }
+
+    /**
+     * Consumes any pending draft payload the app was opened with:
+     * vault items to drop in as attachments, and/or externally shared content
+     * (text into the input bar, video as a draft attachment). Never auto-sends.
+     */
+    fun consumeIncomingDrafts() {
+        viewModelScope.launch {
+            val vaultIds = PendingChatDraft.consume()
+            if (vaultIds.isNotEmpty()) addVaultDrafts(vaultIds)
+
+            val shared = PendingSharedContent.consume()
+            shared?.let { content ->
+                content.text?.takeIf { it.isNotBlank() }?.let { text ->
+                    onInputChange(text)
                 }
-            } finally {
-                _uiState.update { it.copy(isSending = false) }
+                content.videoUri?.let { uri ->
+                    val resolver = getApplication<Application>().contentResolver
+                    val name = queryDisplayName(resolver, uri) ?: "video.mp4"
+                    addDraftMedia(uri, MessageType.VIDEO, name, null)
+                }
+                content.imageUri?.let { uri ->
+                    val resolver = getApplication<Application>().contentResolver
+                    val name = queryDisplayName(resolver, uri) ?: "image.jpg"
+                    addDraftMedia(uri, MessageType.IMAGE, name, null)
+                }
+                content.fileUri?.let { uri ->
+                    val resolver = getApplication<Application>().contentResolver
+                    val name = queryDisplayName(resolver, uri) ?: "file"
+                    addDraftMedia(uri, MessageType.FILE, name, null)
+                }
             }
         }
     }
@@ -262,7 +370,8 @@ class ChatViewModel(
         uri: Uri,
         type: MessageType,
         fileName: String?,
-        fileSize: Long? = null
+        fileSize: Long? = null,
+        caption: String? = null,
     ) {
         val userId = currentUserId ?: return
         val recipientId = _uiState.value.otherUserId ?: return
@@ -379,6 +488,7 @@ class ChatViewModel(
                         contentUrl = url,
                         fileName = fileName,
                         fileSize = uploadSize,
+                        caption = caption,
                         messageId = messageId,
                         reply = reply,
                     )
@@ -930,6 +1040,18 @@ data class ReplyTarget(
     )
 }
 
+/**
+ * A media attachment the user is preparing to send. It is not uploaded until
+ * the user presses send in the input bar (draft, never auto-sent).
+ */
+data class DraftMedia(
+    val localId: String,
+    val type: MessageType,
+    val localUri: Uri,
+    val fileName: String? = null,
+    val fileSize: Long? = null,
+)
+
 data class ChatUiState(
     val currentUserId: String? = null,
     val otherUserId: String? = null,
@@ -938,6 +1060,7 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val listEntries: List<ChatListEntry> = emptyList(),
     val pendingUploads: List<PendingUpload> = emptyList(),
+    val draftMedia: List<DraftMedia> = emptyList(),
     val replyTarget: ReplyTarget? = null,
     val editingMessageId: String? = null,
     val inputText: String = "",

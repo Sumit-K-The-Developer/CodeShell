@@ -39,13 +39,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
@@ -93,6 +96,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
@@ -100,6 +104,7 @@ import kotlin.math.roundToInt
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.codeshell.app.BuildConfig
@@ -110,7 +115,6 @@ import com.codeshell.app.data.model.ChatMessage
 import com.codeshell.app.data.model.MessageType
 import com.codeshell.app.data.model.sessionLogAlignAsMine
 import com.codeshell.app.data.model.PendingUpload
-import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.ui.components.CodeShellDialog
 import com.codeshell.app.ui.components.CodeShellDialogAction
 import com.codeshell.app.ui.components.CodeShellDialogChoice
@@ -217,9 +221,9 @@ fun ChatScreen(
 
     LaunchedEffect(chatId, uiState.currentUserId, uiState.otherUserId) {
         if (uiState.currentUserId == null || uiState.otherUserId == null) return@LaunchedEffect
-        val sharedContent = PendingSharedContent.consume() ?: return@LaunchedEffect
-        sharedContent.text?.takeIf { it.isNotBlank() }?.let(viewModel::onInputChange)
-        sharedContent.videoUri?.let(viewModel::sendVideo)
+        // Vault-send items and externally shared content arrive as drafts
+        // (pending attachments / pre-filled input), never auto-sent.
+        viewModel.consumeIncomingDrafts()
     }
 
     val isCallActive = callUiState.phase != CallUiPhase.Hidden && callUiState.phase != CallUiPhase.StatusMessage
@@ -766,43 +770,67 @@ fun ChatScreen(
         },
         bottomBar = {
             if (uiState.messageSelectionMode) return@Scaffold
-            ChatInputBar(
-                inputText = uiState.inputText,
-                onInputChange = viewModel::onInputChange,
-                onSend = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.sendMessage()
-                },
-                isSending = uiState.isSending,
-                theme = chatTheme,
-                replyTarget = uiState.replyTarget,
-                replyAuthorLabel = when (uiState.replyTarget?.senderId) {
-                    uiState.currentUserId -> stringResource(R.string.reply_preview_you)
-                    else -> uiState.otherDisplayName.ifBlank { "User" }
-                },
-                onClearReply = viewModel::clearReplyTarget,
-                isEditing = uiState.editingMessageId != null,
-                onClearEdit = viewModel::cancelEditing,
-                onPickImage = {
-                    runWithPermissions(galleryPermissions) {
+            Column {
+                if (uiState.draftMedia.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(vertical = 6.dp),
+                    ) {
+                        items(
+                            uiState.draftMedia,
+                            key = { it.localId },
+                        ) { draft ->
+                            DraftMediaChip(
+                                draft = draft,
+                                theme = chatTheme,
+                                imageLoader = imageLoader,
+                                onRemove = { viewModel.removeDraftMedia(draft.localId) },
+                            )
+                        }
+                    }
+                }
+                ChatInputBar(
+                    inputText = uiState.inputText,
+                    onInputChange = viewModel::onInputChange,
+                    onSend = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        viewModel.sendMessage()
+                    },
+                    isSending = uiState.isSending,
+                    theme = chatTheme,
+                    hasDrafts = uiState.draftMedia.isNotEmpty(),
+                    replyTarget = uiState.replyTarget,
+                    replyAuthorLabel = when (uiState.replyTarget?.senderId) {
+                        uiState.currentUserId -> stringResource(R.string.reply_preview_you)
+                        else -> uiState.otherDisplayName.ifBlank { "User" }
+                    },
+                    onClearReply = viewModel::clearReplyTarget,
+                    isEditing = uiState.editingMessageId != null,
+                    onClearEdit = viewModel::cancelEditing,
+                    onPickImage = {
+                        runWithPermissions(galleryPermissions) {
+                            externalMediaFlowActive = true
+                            setSuppressHideOnHome(true)
+                            visualMediaPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                            )
+                        }
+                    },
+                    onTakePhoto = {
+                        runWithPermissions(cameraPermissions) {
+                            showCameraDialog = true
+                        }
+                    },
+                    onPickFile = {
                         externalMediaFlowActive = true
                         setSuppressHideOnHome(true)
-                        visualMediaPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                        )
-                    }
-                },
-                onTakePhoto = {
-                    runWithPermissions(cameraPermissions) {
-                        showCameraDialog = true
-                    }
-                },
-                onPickFile = {
-                    externalMediaFlowActive = true
-                    setSuppressHideOnHome(true)
-                    filePicker.launch(arrayOf("*/*"))
-                },
-            )
+                        filePicker.launch(arrayOf("*/*"))
+                    },
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -1193,6 +1221,89 @@ private fun PendingUploadRow(
             theme = theme,
             onCancel = onCancel,
         )
+    }
+}
+
+@Composable
+private fun DraftMediaChip(
+    draft: DraftMedia,
+    theme: ChatTheme,
+    imageLoader: ImageLoader,
+    onRemove: () -> Unit,
+) {
+    val context = LocalContext.current
+    val colors = theme.colors
+    val corner = RoundedCornerShape(theme.inputBarCorner)
+    Surface(
+        modifier = Modifier.clip(corner),
+        color = colors.topBar.copy(alpha = 0.96f),
+        shape = corner,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.text.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (draft.type == MessageType.FILE) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(22.dp),
+                    )
+                } else {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(draft.localUri)
+                            .crossfade(true)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = draft.fileName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            Column(modifier = Modifier.widthIn(max = 140.dp)) {
+                Text(
+                    text = draft.fileName
+                        ?: when (draft.type) {
+                            MessageType.VIDEO -> "Video"
+                            MessageType.FILE -> "File"
+                            else -> "Image"
+                        },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(R.string.draft_ready_to_send),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.accent,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.cancel),
+                    tint = colors.mutedText,
+                )
+            }
+        }
     }
 }
 

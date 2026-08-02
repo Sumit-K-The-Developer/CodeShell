@@ -7,8 +7,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -25,10 +27,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -160,14 +164,14 @@ fun VaultScreen(
     }
 
     fun performDelete(item: VaultItem) {
-        viewModel.deleteItem(item)
+        viewModel.deleteItemWithUndo(item)
         scope.launch {
             val result = snackbarHostState.showSnackbar(
                 message = "Deleted ${item.fileName}",
                 actionLabel = "Undo",
             )
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.loadItems()
+                viewModel.undoPendingDelete()
             }
         }
     }
@@ -237,7 +241,21 @@ fun VaultScreen(
                                     text = { Text("Delete") },
                                     onClick = {
                                         showSelectionMenu = false
+                                        val count = uiState.selectedItems.size
                                         viewModel.deleteSelectedItems()
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = if (count == 1) {
+                                                    "Deleted 1 item"
+                                                } else {
+                                                    "Deleted $count items"
+                                                },
+                                                actionLabel = "Undo",
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                viewModel.undoPendingDelete()
+                                            }
+                                        }
                                     },
                                     enabled = !uiState.isExporting
                                 )
@@ -355,6 +373,12 @@ fun VaultScreen(
                                 selected = item.id in uiState.selectedItems,
                                 modifier = Modifier.aspectRatio(1f),
                                 onToggleSelection = { viewModel.toggleItemSelection(item) },
+                                onLongPress = {
+                                    if (!uiState.selectionMode) {
+                                        viewModel.toggleSelectionMode()
+                                        viewModel.toggleItemSelection(item)
+                                    }
+                                },
                             )
                         }
                     }
@@ -436,6 +460,7 @@ fun VaultScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VaultItemTile(
     item: VaultItem,
@@ -444,6 +469,7 @@ private fun VaultItemTile(
     selected: Boolean,
     modifier: Modifier = Modifier,
     onToggleSelection: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     var thumbnail by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var loading by remember(item.id) { mutableStateOf(true) }
@@ -467,12 +493,17 @@ private fun VaultItemTile(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(4.dp))
-            .then(
-                if (selectionMode) {
-                    Modifier.clickable { onToggleSelection() }
-                } else {
-                    Modifier.clickable { viewModel.selectItem(item) }
-                }
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onToggleSelection()
+                    } else {
+                        viewModel.selectItem(item)
+                    }
+                },
+                onLongClick = {
+                    if (!selectionMode) onLongPress()
+                },
             )
             .background(
                 when {
@@ -529,6 +560,31 @@ private fun VaultItemTile(
                     tint = Color.White,
                     modifier = Modifier.size(16.dp),
                 )
+            }
+        }
+        if (selected) {
+            // Translucent overlay + checkmark so selected tiles are obvious.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(22.dp)
+                        .background(Color(0xFF4CAF50), CircleShape)
+                        .border(2.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         }
     }

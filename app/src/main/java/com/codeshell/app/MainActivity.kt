@@ -148,14 +148,23 @@ class MainActivity : ComponentActivity() {
     private fun consumeShareIntent(intent: Intent?): Boolean {
         if (intent?.action != Intent.ACTION_SEND) return false
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
-        val sharedVideo = intent.sharedStreamUri()
-            ?.takeIf { intent.type?.startsWith("video/") == true }
-        if (sharedText == null && sharedVideo == null) return false
+        val stream = intent.sharedStreamUri()
+        val mimeType = intent.type?.lowercase().orEmpty()
+        val sharedVideo = stream?.takeIf { mimeType.startsWith("video/") }
+        val sharedImage = stream?.takeIf { mimeType.startsWith("image/") }
+        val sharedFile = stream?.takeIf {
+            mimeType.startsWith("application/") ||
+                (mimeType.startsWith("text/") && mimeType != "text/plain")
+        }
+        if (sharedText == null && sharedVideo == null && sharedImage == null && sharedFile == null) return false
 
         PendingSharedContent.set(
             SharedContent(
                 text = sharedText,
                 videoUri = sharedVideo,
+                imageUri = sharedImage,
+                fileUri = sharedFile,
+                fileMimeType = sharedFile?.let { mimeType },
             )
         )
         intent.setAction(null)
