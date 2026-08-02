@@ -110,13 +110,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isSaving = false, saveProgress = null) }
     }
 
-    fun saveToVaultFromUris(uris: List<Uri>, onAllComplete: () -> Unit) {
+    fun saveToVaultFromUris(uris: List<Uri>, deleteSource: Boolean = true, onAllComplete: () -> Unit) {
         urisSaveJob?.cancel()
         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
 
         urisSaveJob = BackgroundWorkCoordinator.launch {
             try {
-                vaultRepository.saveFromUris(uris) { completed, total ->
+                vaultRepository.saveFromUris(uris, deleteSource = deleteSource) { completed, total ->
                     _uiState.update { it.copy(saveProgress = completed to total) }
                 }.onSuccess {
                     loadItems()

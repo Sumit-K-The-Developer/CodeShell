@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
@@ -65,6 +66,7 @@ import com.codeshell.app.ui.vault.VaultSaveTracker
 import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.MediaPreloadCache
+import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.delay
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -112,7 +114,9 @@ fun MediaViewerScreen(
             MessageType.IMAGE -> "image/jpeg"
             MessageType.AUDIO -> "audio/mp4"
             MessageType.VIDEO -> "video/mp4"
-            else -> "application/octet-stream"
+            // Derive from the file extension so documents (e.g. PDFs) keep their
+            // real MIME type in the vault, which enables the in-app PDF viewer.
+            else -> mimeTypeForFileName(safeName)
         }
         vaultViewModel.saveToVault(mediaUrl, safeName, mime, chatId, messageId)
     }
@@ -414,7 +418,19 @@ private fun FilePreview(fileName: String?) {
         modifier = Modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = fileName ?: stringResource(R.string.file_attachment), color = EditorDefaultText)
+        Icon(
+            imageVector = Icons.Default.InsertDriveFile,
+            contentDescription = null,
+            tint = EditorDefaultText.copy(alpha = 0.7f),
+            modifier = Modifier.size(56.dp)
+        )
+        Text(
+            text = fileName ?: stringResource(R.string.file_attachment),
+            color = EditorDefaultText,
+            maxLines = 3,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 16.dp)
+        )
         Text(
             text = stringResource(R.string.save_to_device_hint),
             color = EditorDefaultText.copy(alpha = 0.7f),

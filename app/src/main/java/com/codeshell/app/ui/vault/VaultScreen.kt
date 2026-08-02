@@ -1,8 +1,11 @@
 package com.codeshell.app.ui.vault
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,7 +17,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
-import com.codeshell.app.util.findActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +24,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -34,10 +39,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -59,6 +66,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,12 +80,18 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
@@ -91,8 +105,13 @@ import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.ui.theme.EditorBackground
 import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.util.findActivity
+import com.codeshell.app.util.formatFileSize
+import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -532,19 +551,23 @@ private fun VaultItemTile(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            else -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        tint = EditorDefaultText.copy(alpha = 0.4f),
-                        modifier = Modifier.size(28.dp),
-                    )
+                else -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = if (item.isImage || item.isVideo) {
+                                Icons.Default.Image
+                            } else {
+                                Icons.Default.InsertDriveFile
+                            },
+                            contentDescription = null,
+                            tint = EditorDefaultText.copy(alpha = 0.4f),
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
                 }
-            }
         }
         if (item.isVideo) {
             Box(
@@ -602,13 +625,15 @@ private fun VaultItemViewerDialog(
     var loading by remember(item.id) { mutableStateOf(true) }
     var bitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var videoFile by remember(item.id) { mutableStateOf<java.io.File?>(null) }
+    var filePath by remember(item.id) { mutableStateOf<String?>(null) }
     var showOptionsMenu by remember { mutableStateOf(false) }
 
     // Resolve the on-disk vault file once per item. For images we decode a
     // sampled bitmap straight from the file (avoids loading the whole file
     // into RAM); for videos we hand the file path straight to ExoPlayer — no
     // bytearray copy, no stale cache file, no OOM on large clips. This is the
-    // fix for the "video preview with play button is not shown" bug.
+    // fix for the "video preview with play button is not shown" bug. Other
+    // files (e.g. PDFs) keep their on-disk path so the viewer can render them.
     LaunchedEffect(item.id) {
         loading = true
         val file = withContext(Dispatchers.IO) { viewModel.getVaultFile(item) }
@@ -631,6 +656,9 @@ private fun VaultItemViewerDialog(
             }
             item.isVideo -> {
                 videoFile = file
+            }
+            else -> {
+                filePath = file.absolutePath
             }
         }
         loading = false
@@ -664,6 +692,16 @@ private fun VaultItemViewerDialog(
                     VaultVideoPlayer(
                         videoUri = videoFile!!.absolutePath,
                     )
+                }
+                !item.isImage && !item.isVideo && filePath != null -> {
+                    if (isPdfItem(item)) {
+                        VaultPdfViewer(pdfFile = File(filePath!!))
+                    } else {
+                        VaultFileInfoView(
+                            item = item,
+                            filePath = filePath!!,
+                        )
+                    }
                 }
                 else -> {
                     Box(
@@ -803,8 +841,7 @@ private fun ZoomableVaultImage(
 @Composable
 private fun VaultVideoPlayer(
     videoUri: String,
-) {
-    val context = LocalContext.current
+) {    val context = LocalContext.current
     var showBuffering by remember(videoUri) { mutableStateOf(true) }
 
     val player = remember(videoUri) {
@@ -857,6 +894,203 @@ private fun VaultVideoPlayer(
                     .size(48.dp),
                 color = Color.White,
             )
+        }
+    }
+}
+
+private fun isPdfItem(item: VaultItem): Boolean =
+    item.mimeType.equals("application/pdf", ignoreCase = true) ||
+        item.fileName.substringAfterLast('.', "").equals("pdf", ignoreCase = true)
+
+/**
+ * In-app PDF viewer built on [android.graphics.pdf.PdfRenderer]. Pages are
+ * rendered lazily to full-width bitmaps (off the main thread, serialized by a
+ * mutex) so large documents never block the UI or load every page into RAM.
+ */
+@Composable
+private fun VaultPdfViewer(
+    pdfFile: File,
+) {
+    val renderMutex = remember { Mutex() }
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    var renderer by remember { mutableStateOf<PdfRenderer?>(null) }
+    var pageCount by remember { mutableIntStateOf(0) }
+    var failed by remember { mutableStateOf(false) }
+
+    DisposableEffect(pdfFile) {
+        val instance = runCatching {
+            PdfRenderer(ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY))
+        }.getOrNull()
+        renderer = instance
+        pageCount = instance?.pageCount ?: 0
+        failed = instance == null
+        onDispose { instance?.close() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        when {
+            failed -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Could not view this PDF", color = Color.White)
+                }
+            }
+            pageCount == 0 -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 56.dp, bottom = 72.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items(pageCount, key = { it }) { index ->
+                        VaultPdfPage(
+                            renderer = renderer,
+                            pageIndex = index,
+                            mutex = renderMutex,
+                            density = density,
+                            screenWidthDp = configuration.screenWidthDp,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VaultPdfPage(
+    renderer: PdfRenderer?,
+    pageIndex: Int,
+    mutex: Mutex,
+    density: Density,
+    screenWidthDp: Int,
+    modifier: Modifier = Modifier,
+) {
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(renderer, pageIndex) {
+        val r = renderer ?: return@LaunchedEffect
+        val widthPx = with(density) { screenWidthDp.dp.roundToPx() }
+        val rendered = withContext(Dispatchers.IO) {
+            mutex.withLock {
+                runCatching {
+                    val page = r.openPage(pageIndex)
+                    try {
+                        val heightPx = (page.height.toLong() * widthPx / page.width)
+                            .toInt()
+                            .coerceAtLeast(1)
+                        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        bmp
+                    } finally {
+                        page.close()
+                    }
+                }.getOrNull()
+            }
+        }
+        bitmap = rendered
+    }
+
+    val bmp = bitmap
+    if (bmp != null) {
+        androidx.compose.foundation.Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = "Page ${pageIndex + 1}",
+            contentScale = ContentScale.FillWidth,
+            modifier = modifier.fillMaxWidth(),
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(
+                color = Color.White,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Fallback for vault items that have no in-app viewer (non-image/video/PDF
+ * documents). Shows file info and lets the user open the file externally.
+ */
+@Composable
+private fun VaultFileInfoView(
+    item: VaultItem,
+    filePath: String,
+) {
+    val context = LocalContext.current
+
+    fun openExternally() {
+        val file = File(filePath)
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                context,
+                context.packageName + ".fileprovider",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeTypeForFileName(item.fileName))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Open with"))
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.InsertDriveFile,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.8f),
+            modifier = Modifier.size(64.dp),
+        )
+        Text(
+            text = item.fileName,
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        Text(
+            text = formatFileSize(item.fileSize),
+            color = Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            text = "No in-app preview for this file type",
+            color = Color.White.copy(alpha = 0.5f),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Button(
+            onClick = { openExternally() },
+            modifier = Modifier.padding(top = 20.dp),
+        ) {
+            Text("Open with another app")
         }
     }
 }

@@ -292,18 +292,16 @@ class ChatViewModel(
                 content.text?.takeIf { it.isNotBlank() }?.let { text ->
                     onInputChange(text)
                 }
-                content.videoUri?.let { uri ->
-                    val resolver = getApplication<Application>().contentResolver
+                val resolver = getApplication<Application>().contentResolver
+                content.videoUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "video.mp4"
                     addDraftMedia(uri, MessageType.VIDEO, name, null)
                 }
-                content.imageUri?.let { uri ->
-                    val resolver = getApplication<Application>().contentResolver
+                content.imageUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "image.jpg"
                     addDraftMedia(uri, MessageType.IMAGE, name, null)
                 }
-                content.fileUri?.let { uri ->
-                    val resolver = getApplication<Application>().contentResolver
+                content.fileUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "file"
                     addDraftMedia(uri, MessageType.FILE, name, null)
                 }

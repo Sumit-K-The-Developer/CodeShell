@@ -785,6 +785,14 @@ fun ChatScreen(
                         ) { draft ->
                             DraftMediaChip(
                                 draft = draft,
+                                // Typed text attaches as the caption of the FIRST
+                                // draft (see ChatViewModel.sendMessage). Show it
+                                // on that chip as a live preview while typing.
+                                caption = if (draft.localId == uiState.draftMedia.firstOrNull()?.localId) {
+                                    uiState.inputText.takeIf { it.isNotBlank() }
+                                } else {
+                                    null
+                                },
                                 theme = chatTheme,
                                 imageLoader = imageLoader,
                                 onRemove = { viewModel.removeDraftMedia(draft.localId) },
@@ -1227,6 +1235,7 @@ private fun PendingUploadRow(
 @Composable
 private fun DraftMediaChip(
     draft: DraftMedia,
+    caption: String?,
     theme: ChatTheme,
     imageLoader: ImageLoader,
     onRemove: () -> Unit,
@@ -1290,6 +1299,15 @@ private fun DraftMediaChip(
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.accent,
                 )
+                caption?.let { text ->
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Box(
                 modifier = Modifier

@@ -120,7 +120,6 @@ import com.codeshell.app.data.auth.BotAccountConstants
 import com.codeshell.app.messaging.PendingChatDraft
 import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.util.MediaPreloadCache
-import com.codeshell.app.util.queryDisplayName
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.findActivity
 import com.codeshell.app.ui.vault.VaultViewModel
@@ -476,8 +475,10 @@ fun HomeScreen(
             HorizontalDivider(color = listColors.mutedText.copy(alpha = 0.15f))
 
             pendingSharedContent?.let { content ->
-                val mediaUri = content.videoUri ?: content.imageUri
+                val mediaUris = content.allUris
                 val description = when {
+                    content.mediaCount > 1 ->
+                        context.getString(R.string.pending_share_multiple_desc, content.mediaCount)
                     content.videoUri != null -> context.getString(R.string.pending_share_video_desc)
                     content.imageUri != null -> context.getString(R.string.pending_share_image_desc)
                     content.fileUri != null -> context.getString(R.string.pending_share_file_desc)
@@ -486,21 +487,16 @@ fun HomeScreen(
                 }
                 PendingShareBanner(
                     description = description,
-                    showSaveToVault = mediaUri != null,
+                    showSaveToVault = content.hasMedia,
                     colors = listColors,
                     onSendToChat = {
                         viewModel.enterSelectionModeForSharedSend()
                     },
                     onSaveToVault = {
-                        val uri = mediaUri
-                        if (uri != null) {
-                            val resolver = context.contentResolver
-                            val mimeType = resolver.getType(uri) ?: "*/*"
-                            val fileName = queryDisplayName(resolver, uri) ?: "shared_media"
-                            vaultViewModel.saveToVaultFromUri(
-                                uri = uri,
-                                fileName = fileName,
-                                mimeType = mimeType,
+                        if (mediaUris.isNotEmpty()) {
+                            vaultViewModel.saveToVaultFromUris(
+                                uris = mediaUris,
+                                onAllComplete = {},
                                 deleteSource = false,
                             )
                             scope.launch {

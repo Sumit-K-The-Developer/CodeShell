@@ -146,31 +146,56 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consumeShareIntent(intent: Intent?): Boolean {
-        if (intent?.action != Intent.ACTION_SEND) return false
+        if (intent == null) return false
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
-        val stream = intent.sharedStreamUri()
-        val mimeType = intent.type?.lowercase().orEmpty()
-        val sharedVideo = stream?.takeIf { mimeType.startsWith("video/") }
-        val sharedImage = stream?.takeIf { mimeType.startsWith("image/") }
-        val sharedFile = stream?.takeIf {
-            mimeType.startsWith("application/") ||
-                (mimeType.startsWith("text/") && mimeType != "text/plain")
+        val content = when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val stream = intent.sharedStreamUri()
+                val mimeType = intent.type?.lowercase().orEmpty()
+                SharedContent(
+                    text = sharedText,
+                    videoUris = stream?.takeIf { mimeType.startsWith("video/") }?.let(::listOf).orEmpty(),
+                    imageUris = stream?.takeIf { mimeType.startsWith("image/") }?.let(::listOf).orEmpty(),
+                    fileUris = stream?.takeIf { isFileMimeType(mimeType) }?.let(::listOf).orEmpty(),
+                )
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val streams = intent.sharedStreamUris()
+                if (streams.isEmpty() && sharedText == null) return false
+                val fallbackMime = intent.type?.lowercase().orEmpty()
+                val videos = mutableListOf<Uri>()
+                val images = mutableListOf<Uri>()
+                val files = mutableListOf<Uri>()
+                streams.forEach { uri ->
+                    val mimeType = runCatching { contentResolver.getType(uri)?.lowercase().orEmpty() }
+                        .getOrDefault("")
+                        .takeIf { it.isNotBlank() } ?: fallbackMime
+                    when {
+                        mimeType.startsWith("video/") -> videos.add(uri)
+                        mimeType.startsWith("image/") -> images.add(uri)
+                        else -> files.add(uri)
+                    }
+                }
+                SharedContent(
+                    text = sharedText,
+                    videoUris = videos,
+                    imageUris = images,
+                    fileUris = files,
+                )
+            }
+            else -> return false
         }
-        if (sharedText == null && sharedVideo == null && sharedImage == null && sharedFile == null) return false
+        if (sharedText == null && !content.hasMedia) return false
 
-        PendingSharedContent.set(
-            SharedContent(
-                text = sharedText,
-                videoUri = sharedVideo,
-                imageUri = sharedImage,
-                fileUri = sharedFile,
-                fileMimeType = sharedFile?.let { mimeType },
-            )
-        )
+        PendingSharedContent.set(content)
         intent.setAction(null)
         shareOpenTick++
         return true
     }
+
+    private fun isFileMimeType(mimeType: String): Boolean =
+        mimeType.startsWith("application/") ||
+            (mimeType.startsWith("text/") && mimeType != "text/plain")
 
     private fun Intent.sharedStreamUri(): Uri? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -178,6 +203,14 @@ class MainActivity : ComponentActivity() {
         } else {
             @Suppress("DEPRECATION")
             getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
+
+    private fun Intent.sharedStreamUris(): List<Uri> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
         }
 
     private fun consumeNotificationChatIntent(intent: Intent?) {

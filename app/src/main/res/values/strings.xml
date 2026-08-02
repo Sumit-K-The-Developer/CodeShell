@@ -143,6 +143,7 @@
     <string name="pending_share_video_desc">Open a session to share this video.</string>
     <string name="pending_share_image_desc">Open a session to share this photo.</string>
     <string name="pending_share_file_desc">Open a session to share this file.</string>
+    <string name="pending_share_multiple_desc">Open a session to share these %1$d items.</string>
     <string name="send_to_chat">Send to Chat</string>
     <string name="save_to_vault">Save to Vault</string>
     <string name="saved_to_vault">Saved to Vault</string>

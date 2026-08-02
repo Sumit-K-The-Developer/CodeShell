@@ -320,14 +320,14 @@ class VaultRepository(private val context: Context) {
         return inSampleSize
     }
 
-    suspend fun saveFromUris(uris: List<Uri>, onProgress: (completed: Int, total: Int) -> Unit): Result<List<VaultItem>> = withContext(Dispatchers.IO) {
+    suspend fun saveFromUris(uris: List<Uri>, deleteSource: Boolean = true, onProgress: (completed: Int, total: Int) -> Unit): Result<List<VaultItem>> = withContext(Dispatchers.IO) {
         val results = mutableListOf<VaultItem>()
         val errors = mutableListOf<String>()
         uris.forEachIndexed { index, uri ->
             try {
                 val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
                 val fileName = getFileNameFromUri(uri) ?: "file_${index + 1}"
-                saveFromUri(uri, fileName, mimeType).onSuccess { item ->
+                saveFromUri(uri, fileName, mimeType, deleteSource = deleteSource).onSuccess { item ->
                     results.add(item)
                 }.onFailure { error ->
                     errors.add("Item ${index + 1}: ${error.message}")
