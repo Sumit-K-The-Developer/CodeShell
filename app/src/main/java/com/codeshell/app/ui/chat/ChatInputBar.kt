@@ -11,7 +11,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,8 +22,11 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,13 +55,117 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.codeshell.app.R
+import com.codeshell.app.data.model.MessageType
+import com.codeshell.app.util.MediaImageLoader
+
+@Composable
+private fun DraftThumb(
+    draft: DraftMedia,
+    theme: ChatTheme,
+    caption: String?,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val context = LocalContext.current
+    val imageLoader = remember { MediaImageLoader.get(context) }
+    val colors = theme.colors
+    val corner = RoundedCornerShape(theme.inputBarCorner)
+    Surface(
+        modifier = Modifier
+            .clip(corner)
+            .clickable(onClick = onClick),
+        color = colors.topBar.copy(alpha = 0.96f),
+        shape = corner,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .height(64.dp)
+                .padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.text.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (draft.type == MessageType.FILE) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                } else {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(draft.localUri)
+                            .crossfade(true)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = draft.fileName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            Column(modifier = Modifier.widthIn(max = 150.dp)) {
+                Text(
+                    text = draft.fileName
+                        ?: when (draft.type) {
+                            MessageType.VIDEO -> stringResource(R.string.draft_type_video)
+                            MessageType.FILE -> stringResource(R.string.draft_type_file)
+                            else -> stringResource(R.string.draft_type_image)
+                        },
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(R.string.draft_ready_to_send),
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    color = colors.accent,
+                )
+                caption?.let { text ->
+                    Text(
+                        text = text,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                        color = colors.mutedText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.cancel),
+                    tint = colors.mutedText,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun AttachIconButton(
@@ -90,6 +199,10 @@ fun ChatInputBar(
     onPickFile: () -> Unit,
     theme: ChatTheme,
     hasDrafts: Boolean = false,
+    drafts: List<DraftMedia> = emptyList(),
+    onEditDraft: (DraftMedia) -> Unit = {},
+    onRemoveDraft: (String) -> Unit = {},
+    captionForDraft: (DraftMedia) -> String? = { null },
     replyTarget: ReplyTarget? = null,
     replyAuthorLabel: String = "",
     onClearReply: () -> Unit = {},
@@ -117,6 +230,11 @@ fun ChatInputBar(
         MaterialTheme.typography.bodySmall
     }
     val isMultiline = inputText.contains('\n') || inputText.length > 48
+
+    fun sendAndCollapse() {
+        attachExpanded = false
+        onSend()
+    }
 
     Column(
         modifier = modifier
@@ -197,6 +315,29 @@ fun ChatInputBar(
                         imageVector = Icons.Default.Close,
                         contentDescription = stringResource(R.string.cancel),
                         tint = colors.mutedText
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = drafts.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(end = 4.dp),
+            ) {
+                items(
+                    drafts,
+                    key = { it.localId },
+                ) { draft ->
+                    DraftThumb(
+                        draft = draft,
+                        theme = theme,
+                        caption = captionForDraft(draft),
+                        onClick = { if (draft.type == MessageType.IMAGE) onEditDraft(draft) },
+                        onRemove = { onRemoveDraft(draft.localId) },
                     )
                 }
             }
@@ -293,7 +434,7 @@ fun ChatInputBar(
                     ),
                     keyboardActions = KeyboardActions(
                         onSend = {
-                            if ((inputText.isNotBlank() || hasDrafts) && !isSending) onSend()
+                            if ((inputText.isNotBlank() || hasDrafts) && !isSending) sendAndCollapse()
                         }
                     ),
                     decorationBox = { innerTextField ->
@@ -322,7 +463,7 @@ fun ChatInputBar(
                         enabled = canSend,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onSend,
+                        onClick = { sendAndCollapse() },
                     ),
                 contentAlignment = Alignment.Center,
             ) {

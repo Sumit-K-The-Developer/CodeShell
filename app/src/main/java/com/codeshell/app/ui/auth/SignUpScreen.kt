@@ -58,6 +58,7 @@ import com.codeshell.app.ui.components.CodeShellUsernameField
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.ui.components.ProfilePhotoCropDialog
 import com.codeshell.app.ui.chat.rememberChatColors
+import com.codeshell.app.ui.util.ConstrainedFormColumn
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import com.codeshell.app.util.NetworkConnectivity
@@ -151,6 +152,7 @@ fun SignUpScreen(
                 .padding(innerPadding)
         ) {
             OfflineBanner(colors = chatColors)
+            ConstrainedFormColumn {
             Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -299,6 +301,7 @@ fun SignUpScreen(
 
             TextButton(onClick = onNavigateToLogin) {
                 Text(stringResource(R.string.have_account_login))
+            }
             }
             }
         }

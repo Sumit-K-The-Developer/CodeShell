@@ -45,6 +45,7 @@ import com.codeshell.app.R
 import com.codeshell.app.ui.components.CodeShellUsernameField
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.ui.chat.rememberChatColors
+import com.codeshell.app.ui.util.ConstrainedFormColumn
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import com.codeshell.app.util.NetworkConnectivity
@@ -108,6 +109,7 @@ fun LoginScreen(
                 .padding(innerPadding)
         ) {
             OfflineBanner(colors = chatColors)
+            ConstrainedFormColumn {
             Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -171,6 +173,7 @@ fun LoginScreen(
 
             TextButton(onClick = onNavigateToSignUp) {
                 Text(stringResource(R.string.no_account_sign_up))
+            }
             }
             }
         }

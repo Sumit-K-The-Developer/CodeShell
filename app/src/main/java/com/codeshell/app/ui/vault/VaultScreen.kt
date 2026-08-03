@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -186,8 +187,8 @@ fun VaultScreen(
         viewModel.deleteItemWithUndo(item)
         scope.launch {
             val result = snackbarHostState.showSnackbar(
-                message = "Deleted ${item.fileName}",
-                actionLabel = "Undo",
+                message = context.getString(R.string.deleted_item, item.fileName),
+                actionLabel = context.getString(R.string.undo),
             )
             if (result == SnackbarResult.ActionPerformed) {
                 viewModel.undoPendingDelete()
@@ -204,9 +205,9 @@ fun VaultScreen(
                     Text(
                         when {
                             uiState.selectionMode && uiState.selectedItems.isNotEmpty() ->
-                                "${uiState.selectedItems.size} selected"
-                            uiState.selectionMode -> "Select items"
-                            else -> "Vault"
+                                stringResource(R.string.selected_count, uiState.selectedItems.size)
+                            uiState.selectionMode -> stringResource(R.string.select_items)
+                            else -> stringResource(R.string.vault_title)
                         }
                     )
                 },
@@ -230,7 +231,7 @@ fun VaultScreen(
                             IconButton(onClick = { showSelectionMenu = true }) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More options",
+                                    contentDescription = stringResource(R.string.more_options),
                                     tint = EditorDefaultText
                                 )
                             }
@@ -239,7 +240,7 @@ fun VaultScreen(
                                 onDismissRequest = { showSelectionMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Send to Chat") },
+                                    text = { Text(stringResource(R.string.send_to_chat)) },
                                     onClick = {
                                         showSelectionMenu = false
                                         val selectedIds = uiState.selectedItems.toList()
@@ -249,7 +250,7 @@ fun VaultScreen(
                                     enabled = !uiState.isSending
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Move to Gallery") },
+                                    text = { Text(stringResource(R.string.move_to_gallery)) },
                                     onClick = {
                                         showSelectionMenu = false
                                         viewModel.moveSelectedToGallery()
@@ -257,7 +258,7 @@ fun VaultScreen(
                                     enabled = !uiState.isExporting
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete") },
+                                    text = { Text(stringResource(R.string.delete)) },
                                     onClick = {
                                         showSelectionMenu = false
                                         val count = uiState.selectedItems.size
@@ -265,11 +266,11 @@ fun VaultScreen(
                                         scope.launch {
                                             val result = snackbarHostState.showSnackbar(
                                                 message = if (count == 1) {
-                                                    "Deleted 1 item"
+                                                    context.getString(R.string.deleted_one_item)
                                                 } else {
-                                                    "Deleted $count items"
+                                                    context.getString(R.string.deleted_count_items, count)
                                                 },
-                                                actionLabel = "Undo",
+                                                actionLabel = context.getString(R.string.undo),
                                             )
                                             if (result == SnackbarResult.ActionPerformed) {
                                                 viewModel.undoPendingDelete()
@@ -279,7 +280,7 @@ fun VaultScreen(
                                     enabled = !uiState.isExporting
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Cancel") },
+                                    text = { Text(stringResource(R.string.cancel)) },
                                     onClick = {
                                         showSelectionMenu = false
                                         viewModel.clearItemSelection()
@@ -312,7 +313,7 @@ fun VaultScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add to Vault",
+                    contentDescription = stringResource(R.string.add_to_vault),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -362,12 +363,12 @@ fun VaultScreen(
                                 modifier = Modifier.size(64.dp),
                             )
                             Text(
-                                text = "No media saved yet",
+                                text = stringResource(R.string.no_media_saved_yet),
                                 color = EditorDefaultText.copy(alpha = 0.6f),
                                 modifier = Modifier.padding(top = 12.dp),
                             )
                             Text(
-                                text = "Tap + to add from gallery, or save media from chats",
+                                text = stringResource(R.string.vault_empty_hint),
                                 color = EditorDefaultText.copy(alpha = 0.4f),
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 4.dp),
@@ -433,9 +434,9 @@ fun VaultScreen(
                 showSendConfirmationDialog = false
                 pendingSendItem = null
             },
-            title = { Text("Send to Chat") },
+            title = { Text(stringResource(R.string.send_to_chat)) },
             text = {
-                Text("Send \"${pendingSendItem?.fileName}\" to a conversation?")
+                Text(stringResource(R.string.send_file_confirmation, pendingSendItem?.fileName ?: ""))
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -444,7 +445,7 @@ fun VaultScreen(
                     pendingSendItem = null
                     onNavigateToHomeForVaultSend?.invoke()
                 }) {
-                    Text("Send")
+                    Text(stringResource(R.string.send))
                 }
             },
             dismissButton = {
@@ -452,7 +453,7 @@ fun VaultScreen(
                     showSendConfirmationDialog = false
                     pendingSendItem = null
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -461,11 +462,11 @@ fun VaultScreen(
     uiState.errorMessage?.let { msg ->
         AlertDialog(
             onDismissRequest = { viewModel.clearError() },
-            title = { Text("Error") },
+            title = { Text(stringResource(R.string.save_failed)) },
             text = { Text(msg) },
             confirmButton = {
                 TextButton(onClick = { viewModel.clearError() }) {
-                    Text("OK")
+                    Text(stringResource(R.string.done))
                 }
             },
         )
@@ -473,7 +474,7 @@ fun VaultScreen(
 
     if (uiState.exportSuccess) {
         LaunchedEffect(Unit) {
-            snackbarHostState.showSnackbar("Moved to gallery")
+            snackbarHostState.showSnackbar(context.getString(R.string.moved_to_gallery))
             viewModel.clearError()
         }
     }
@@ -552,20 +553,50 @@ private fun VaultItemTile(
                 )
             }
                 else -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (item.isImage || item.isVideo) {
-                                Icons.Default.Image
-                            } else {
-                                Icons.Default.InsertDriveFile
-                            },
-                            contentDescription = null,
-                            tint = EditorDefaultText.copy(alpha = 0.4f),
-                            modifier = Modifier.size(28.dp),
-                        )
+                    if (item.isImage || item.isVideo) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = EditorDefaultText.copy(alpha = 0.4f),
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 6.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.InsertDriveFile,
+                                contentDescription = null,
+                                tint = EditorDefaultText.copy(alpha = 0.4f),
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = item.fileName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EditorDefaultText.copy(alpha = 0.7f),
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = formatFileSize(item.fileSize),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EditorDefaultText.copy(alpha = 0.4f),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
         }
@@ -579,7 +610,7 @@ private fun VaultItemTile(
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Video",
+                    contentDescription = stringResource(R.string.video_badge),
                     tint = Color.White,
                     modifier = Modifier.size(16.dp),
                 )
@@ -603,7 +634,7 @@ private fun VaultItemTile(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
-                        contentDescription = "Selected",
+                        contentDescription = stringResource(R.string.selected),
                         tint = Color.White,
                         modifier = Modifier.size(14.dp),
                     )
@@ -708,7 +739,7 @@ private fun VaultItemViewerDialog(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Could not load media", color = Color.White)
+                        Text(stringResource(R.string.could_not_load_media), color = Color.White)
                     }
                 }
             }
@@ -721,7 +752,7 @@ private fun VaultItemViewerDialog(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.back),
                     tint = Color.White,
                 )
             }
@@ -734,7 +765,7 @@ private fun VaultItemViewerDialog(
                 IconButton(onClick = { showOptionsMenu = true }) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
+                        contentDescription = stringResource(R.string.more_options),
                         tint = Color.White,
                     )
                 }
@@ -743,21 +774,21 @@ private fun VaultItemViewerDialog(
                     onDismissRequest = { showOptionsMenu = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Move to Gallery") },
+                        text = { Text(stringResource(R.string.move_to_gallery)) },
                         onClick = {
                             showOptionsMenu = false
                             onMoveToGallery()
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Send to Chat") },
+                        text = { Text(stringResource(R.string.send_to_chat)) },
                         onClick = {
                             showOptionsMenu = false
                             onSend()
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete") },
+                        text = { Text(stringResource(R.string.delete)) },
                         onClick = {
                             showOptionsMenu = false
                             onDelete()
@@ -936,7 +967,7 @@ private fun VaultPdfViewer(
         when {
             failed -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Could not view this PDF", color = Color.White)
+                    Text(stringResource(R.string.could_not_view_pdf), color = Color.White)
                 }
             }
             pageCount == 0 -> {
@@ -951,6 +982,14 @@ private fun VaultPdfViewer(
                         .padding(top = 56.dp, bottom = 72.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.pdf_page_count, pageCount),
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
                     items(pageCount, key = { it }) { index ->
                         VaultPdfPage(
                             renderer = renderer,
@@ -1006,7 +1045,7 @@ private fun VaultPdfPage(
     if (bmp != null) {
         androidx.compose.foundation.Image(
             bitmap = bmp.asImageBitmap(),
-            contentDescription = "Page ${pageIndex + 1}",
+            contentDescription = stringResource(R.string.pdf_page, pageIndex + 1),
             contentScale = ContentScale.FillWidth,
             modifier = modifier.fillMaxWidth(),
         )
@@ -1048,7 +1087,7 @@ private fun VaultFileInfoView(
                 setDataAndType(uri, mimeTypeForFileName(item.fileName))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Open with"))
+            context.startActivity(Intent.createChooser(intent, context.getString(R.string.open_with)))
         }
     }
 
@@ -1081,7 +1120,7 @@ private fun VaultFileInfoView(
             modifier = Modifier.padding(top = 4.dp),
         )
         Text(
-            text = "No in-app preview for this file type",
+            text = stringResource(R.string.no_in_app_preview),
             color = Color.White.copy(alpha = 0.5f),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 12.dp),
@@ -1090,7 +1129,7 @@ private fun VaultFileInfoView(
             onClick = { openExternally() },
             modifier = Modifier.padding(top = 20.dp),
         ) {
-            Text("Open with another app")
+            Text(stringResource(R.string.open_with_another_app))
         }
     }
 }

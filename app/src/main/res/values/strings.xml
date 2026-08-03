@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="press_back_again_to_exit">Press back again to exit</string>
     <string name="app_name">CodeShell</string>
     <string name="lang_python">Python</string>
     <string name="lang_javascript">JavaScript</string>
@@ -310,4 +311,34 @@
     <string name="vault_save_notification_desc">Saving media to your vault</string>
     <string name="vault_save_channel">Vault saves</string>
     <string name="vault_save_channel_desc">Background media saves to the vault</string>
+
+    <!-- Vault / file viewer UI -->
+    <string name="vault_title">Vault</string>
+    <string name="select_items">Select items</string>
+    <string name="add_to_vault">Add to Vault</string>
+    <string name="no_media_saved_yet">No media saved yet</string>
+    <string name="vault_empty_hint">Tap + to add from the gallery, or save media from sessions.</string>
+    <string name="move_to_gallery">Move to Gallery</string>
+    <string name="moved_to_gallery">Moved to gallery</string>
+    <string name="could_not_load_media">Could not load media</string>
+    <string name="deleted_item">Deleted %1$s</string>
+    <string name="deleted_one_item">Deleted 1 item</string>
+    <string name="deleted_count_items">Deleted %1$d items</string>
+    <string name="undo">Undo</string>
+    <string name="send">Send</string>
+    <string name="send_file_confirmation">Send "%1$s" to a conversation?</string>
+    <string name="selected">Selected</string>
+    <string name="video_badge">Video</string>
+    <string name="could_not_view_pdf">Could not view this PDF</string>
+    <string name="pdf_page">Page %1$d</string>
+    <string name="pdf_page_count">%1$d pages</string>
+    <string name="no_in_app_preview">No in-app preview for this file type</string>
+    <string name="open_with_another_app">Open with another app</string>
+    <string name="open_with">Open with</string>
+    <string name="saving">Saving…</string>
+    <string name="save_failed_with_message">Save failed: %1$s</string>
+    <string name="draft_type_image">Image</string>
+    <string name="draft_type_video">Video</string>
+    <string name="draft_type_file">File</string>
+    <string name="draft_caption_label">Caption</string>
 </resources>

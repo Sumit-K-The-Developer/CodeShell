@@ -255,6 +255,40 @@ class ChatViewModel(
     }
 
     /**
+     * Adds an image/video picked via the input-bar '+' row to the draft list
+     * (which is rendered inside the input bar for a "tag message" preview).
+     * Nothing is uploaded until the user presses send.
+     */
+    fun addPickedMediaDraft(uri: Uri) {
+        val app = getApplication<Application>()
+        val resolver = app.contentResolver
+        val type = if (isVideoUri(app, resolver, uri)) MessageType.VIDEO else MessageType.IMAGE
+        addDraftMedia(uri, type, queryDisplayName(resolver, uri), queryFileSize(resolver, uri))
+    }
+
+    /**
+     * Adds a document picked via the '+' file chooser to the draft list.
+     */
+    fun addPickedFileDraft(uri: Uri) {
+        val resolver = getApplication<Application>().contentResolver
+        addDraftMedia(uri, MessageType.FILE, queryDisplayName(resolver, uri), queryFileSize(resolver, uri))
+    }
+
+    /**
+     * Replaces a draft's local image URI with the cropped output so the original
+     * image draft becomes the new, cropped attachment before sending.
+     */
+    fun replaceDraftMedia(localId: String, uri: Uri) {
+        _uiState.update { state ->
+            state.copy(
+                draftMedia = state.draftMedia.map { draft ->
+                    if (draft.localId == localId) draft.copy(localUri = uri) else draft
+                }
+            )
+        }
+    }
+
+    /**
      * Turns the pending vault-send items (selected on the conversation tile
      * page) into draft attachments referencing the on-disk vault files. Nothing
      * is uploaded or sent until the user presses send.

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -128,6 +129,7 @@ import com.codeshell.app.ui.theme.OnlineGreen
 import com.codeshell.app.ui.disguise.LearningWebView
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
 import com.codeshell.app.ui.util.TerminalInactivityEffect
+import com.codeshell.app.ui.components.MediaCropDialog
 import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.MediaPreloadCache
 import com.codeshell.app.util.formatMessageTime
@@ -171,6 +173,7 @@ fun ChatScreen(
     var videoCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var showCameraDialog by remember { mutableStateOf(false) }
     var externalMediaFlowActive by remember { mutableStateOf(false) }
+    var draftToCrop by remember { mutableStateOf<DraftMedia?>(null) }
     var activityGeneration by remember { mutableIntStateOf(0) }
     var showClearDialog by remember { mutableStateOf(false) }
     var showRemoveDialog by remember { mutableStateOf(false) }
@@ -299,7 +302,7 @@ fun ChatScreen(
     ) { uri ->
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
-        uri?.let(viewModel::sendPickedMedia)
+        uri?.let(viewModel::addPickedMediaDraft)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         externalMediaFlowActive = false
@@ -311,19 +314,19 @@ fun ChatScreen(
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }
-            viewModel.sendFile(it)
+            viewModel.addPickedFileDraft(it)
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
-        if (success) cameraUri?.let(viewModel::sendImage)
+        if (success) cameraUri?.let(viewModel::addPickedMediaDraft)
         cameraUri = null
     }
     val videoCaptureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
-        if (success) videoCaptureUri?.let(viewModel::sendVideo)
+        if (success) videoCaptureUri?.let(viewModel::addPickedMediaDraft)
         videoCaptureUri = null
     }
 
@@ -630,6 +633,17 @@ fun ChatScreen(
         )
     }
 
+    draftToCrop?.let { draft ->
+        MediaCropDialog(
+            sourceUri = draft.localUri,
+            onDismiss = { draftToCrop = null },
+            onCropped = { croppedUri ->
+                viewModel.replaceDraftMedia(draft.localId, croppedUri)
+                draftToCrop = null
+            },
+        )
+    }
+
     if (showClearDialog) {
         DeleteChoiceDialog(
             title = stringResource(R.string.clear_terminal),
@@ -771,35 +785,6 @@ fun ChatScreen(
         bottomBar = {
             if (uiState.messageSelectionMode) return@Scaffold
             Column {
-                if (uiState.draftMedia.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(vertical = 6.dp),
-                    ) {
-                        items(
-                            uiState.draftMedia,
-                            key = { it.localId },
-                        ) { draft ->
-                            DraftMediaChip(
-                                draft = draft,
-                                // Typed text attaches as the caption of the FIRST
-                                // draft (see ChatViewModel.sendMessage). Show it
-                                // on that chip as a live preview while typing.
-                                caption = if (draft.localId == uiState.draftMedia.firstOrNull()?.localId) {
-                                    uiState.inputText.takeIf { it.isNotBlank() }
-                                } else {
-                                    null
-                                },
-                                theme = chatTheme,
-                                imageLoader = imageLoader,
-                                onRemove = { viewModel.removeDraftMedia(draft.localId) },
-                            )
-                        }
-                    }
-                }
                 ChatInputBar(
                     inputText = uiState.inputText,
                     onInputChange = viewModel::onInputChange,
@@ -810,22 +795,13 @@ fun ChatScreen(
                     isSending = uiState.isSending,
                     theme = chatTheme,
                     hasDrafts = uiState.draftMedia.isNotEmpty(),
-                    replyTarget = uiState.replyTarget,
-                    replyAuthorLabel = when (uiState.replyTarget?.senderId) {
-                        uiState.currentUserId -> stringResource(R.string.reply_preview_you)
-                        else -> uiState.otherDisplayName.ifBlank { "User" }
-                    },
-                    onClearReply = viewModel::clearReplyTarget,
-                    isEditing = uiState.editingMessageId != null,
-                    onClearEdit = viewModel::cancelEditing,
+                    drafts = uiState.draftMedia,
                     onPickImage = {
-                        runWithPermissions(galleryPermissions) {
-                            externalMediaFlowActive = true
-                            setSuppressHideOnHome(true)
-                            visualMediaPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                            )
-                        }
+                        externalMediaFlowActive = true
+                        setSuppressHideOnHome(true)
+                        visualMediaPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                        )
                     },
                     onTakePhoto = {
                         runWithPermissions(cameraPermissions) {
@@ -837,6 +813,30 @@ fun ChatScreen(
                         setSuppressHideOnHome(true)
                         filePicker.launch(arrayOf("*/*"))
                     },
+                    onEditDraft = { draft ->
+                        if (draft.type == MessageType.IMAGE) {
+                            draftToCrop = draft
+                        }
+                    },
+                    onRemoveDraft = { viewModel.removeDraftMedia(it) },
+                    captionForDraft = { draft ->
+                        // Typed text attaches as the caption of the FIRST draft
+                        // (see ChatViewModel.sendMessage). Preview it live while
+                        // typing so the user can tag the media before sending.
+                        if (draft.localId == uiState.draftMedia.firstOrNull()?.localId) {
+                            uiState.inputText.takeIf { it.isNotBlank() }
+                        } else {
+                            null
+                        }
+                    },
+                    replyTarget = uiState.replyTarget,
+                    replyAuthorLabel = when (uiState.replyTarget?.senderId) {
+                        uiState.currentUserId -> stringResource(R.string.reply_preview_you)
+                        else -> uiState.otherDisplayName.ifBlank { stringResource(R.string.chat_actor_fallback) }
+                    },
+                    onClearReply = viewModel::clearReplyTarget,
+                    isEditing = uiState.editingMessageId != null,
+                    onClearEdit = viewModel::cancelEditing,
                 )
             }
         }
@@ -870,10 +870,28 @@ fun ChatScreen(
                             color = chatColors.accent,
                         )
                     } else {
-                        Text(
-                            text = stringResource(R.string.no_session_output),
-                            color = chatColors.mutedText
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TextFields,
+                                contentDescription = null,
+                                tint = chatColors.mutedText.copy(alpha = 0.5f),
+                                modifier = Modifier.size(56.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.no_session_output),
+                                color = chatColors.mutedText,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.type_output),
+                                color = chatColors.mutedText.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
                     }
                 }
             } else {
@@ -1229,99 +1247,6 @@ private fun PendingUploadRow(
             theme = theme,
             onCancel = onCancel,
         )
-    }
-}
-
-@Composable
-private fun DraftMediaChip(
-    draft: DraftMedia,
-    caption: String?,
-    theme: ChatTheme,
-    imageLoader: ImageLoader,
-    onRemove: () -> Unit,
-) {
-    val context = LocalContext.current
-    val colors = theme.colors
-    val corner = RoundedCornerShape(theme.inputBarCorner)
-    Surface(
-        modifier = Modifier.clip(corner),
-        color = colors.topBar.copy(alpha = 0.96f),
-        shape = corner,
-        tonalElevation = 2.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.text.copy(alpha = 0.06f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (draft.type == MessageType.FILE) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = null,
-                        tint = colors.accent,
-                        modifier = Modifier.size(22.dp),
-                    )
-                } else {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(draft.localUri)
-                            .crossfade(true)
-                            .build(),
-                        imageLoader = imageLoader,
-                        contentDescription = draft.fileName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-            Column(modifier = Modifier.widthIn(max = 140.dp)) {
-                Text(
-                    text = draft.fileName
-                        ?: when (draft.type) {
-                            MessageType.VIDEO -> "Video"
-                            MessageType.FILE -> "File"
-                            else -> "Image"
-                        },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = stringResource(R.string.draft_ready_to_send),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.accent,
-                )
-                caption?.let { text ->
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(onClick = onRemove),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.cancel),
-                    tint = colors.mutedText,
-                )
-            }
-        }
     }
 }
 

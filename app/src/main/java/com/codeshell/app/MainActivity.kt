@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -19,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,7 +39,6 @@ import com.codeshell.app.ui.theme.CodeShellTheme
 import com.codeshell.app.ui.version.VersionGateOverlay
 import com.codeshell.app.ui.version.VersionGateViewModel
 import com.codeshell.app.ui.version.rememberExitAppAction
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -97,14 +98,20 @@ class MainActivity : ComponentActivity() {
                 val exitApp = rememberExitAppAction()
                 val navController = rememberNavController()
 
-                var backPressedOnce by mutableStateOf(false)
+                var lastBackPressTime by remember { mutableStateOf(0L) }
 
+                // Two presses within a short window exit the app. We gate on a
+                // wall-clock timestamp rather than a mutable boolean + delayed
+                // reset so that rapid presses reliably reach exitApp().
                 BackHandler(enabled = versionState.canProceed) {
-                    if (backPressedOnce) {
+                    val now: Long = SystemClock.elapsedRealtime()
+                    val last: Long = lastBackPressTime
+                    if (now - last <= EXIT_BACK_WINDOW_MS) {
+                        lastBackPressTime = 0L
                         exitApp()
                     } else {
-                        backPressedOnce = true
-                        Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                        lastBackPressTime = now
+                        Toast.makeText(this@MainActivity, R.string.press_back_again_to_exit, Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -122,13 +129,6 @@ class MainActivity : ComponentActivity() {
                         onOpenStore = { versionGateViewModel.openStore(this@MainActivity) },
                         onExitApp = exitApp
                     )
-                }
-
-                LaunchedEffect(backPressedOnce) {
-                    if (backPressedOnce) {
-                        delay(2000)
-                        backPressedOnce = false
-                    }
                 }
             }
         }
@@ -313,5 +313,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_FROM_SECRET_CODE = "extra_from_secret_code"
+
+        /** Double-back-exit window in milliseconds. */
+        private const val EXIT_BACK_WINDOW_MS = 2500L
     }
 }

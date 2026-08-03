@@ -79,6 +79,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -112,6 +114,7 @@ import com.codeshell.app.ui.chat.ChatThemeColors
 import com.codeshell.app.ui.chat.ChatUserIdBadge
 import com.codeshell.app.ui.chat.rememberAdaptiveChatTheme
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
+import com.codeshell.app.ui.util.WindowLayout
 import com.codeshell.app.ui.components.HiddenSettingsIconButton
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.CodeShellApplication
@@ -130,7 +133,7 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun HomeScreen(
     onNavigateBack: () -> Unit,
@@ -547,10 +550,19 @@ fun HomeScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Fixed(WindowLayout.homeGridColumns()),
                     state = gridState,
                     modifier = Modifier
                         .fillMaxSize()
+                        .then(
+                            // Blur the tiles behind the external-share "choose an
+                            // action" banner so the decision surface stays the focus.
+                            if (pendingSharedContent != null && !uiState.selectionMode) {
+                                Modifier.blur(10.dp)
+                            } else {
+                                Modifier
+                            }
+                        )
                         .then(
                             if (uiState.selectionMode) {
                                 Modifier.padding(bottom = 88.dp)
@@ -827,7 +839,7 @@ private fun SessionSelectionBar(
             Spacer(modifier = Modifier.width(16.dp))
             if (isVaultSendMode) {
                 Text(
-                    text = "Send",
+                    text = stringResource(R.string.send),
                     color = if (enabled) {
                         colors.accent
                     } else {

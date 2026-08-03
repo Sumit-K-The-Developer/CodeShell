@@ -91,7 +91,12 @@ fun VersionGateOverlay(
 fun rememberExitAppAction(): () -> Unit {
     val context = LocalContext.current
     return {
-        (context as? Activity)?.finishAffinity()
+        val activity = context as? Activity
+        if (activity != null) {
+            activity.finishAndRemoveTask()
+            activity.moveTaskToBack(true)
+        }
         android.os.Process.killProcess(android.os.Process.myPid())
+        kotlin.system.exitProcess(0)
     }
 }
