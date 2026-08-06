@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.Canvas
@@ -18,14 +19,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +62,8 @@ import kotlin.math.sqrt
 @Composable
 fun MediaCropDialog(
     sourceUri: Uri,
+    onUserActivity: () -> Unit = {},
+    allowRotate: Boolean = false,
     onDismiss: () -> Unit,
     onCropped: (Uri) -> Unit,
 ) {
@@ -65,9 +72,15 @@ fun MediaCropDialog(
     var isCropping by remember { mutableStateOf(false) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var cropFrame by remember(sourceUri) { mutableStateOf<CropRect?>(null) }
+    var rotationDegrees by remember(sourceUri) { mutableIntStateOf(0) }
 
-    LaunchedEffect(sourceUri) {
-        bitmap = loadBitmap(context, sourceUri)
+    LaunchedEffect(sourceUri, rotationDegrees) {
+        val source = loadBitmap(context, sourceUri)
+        bitmap = if (rotationDegrees == 0) {
+            source
+        } else {
+            rotateBitmap(source, rotationDegrees.toFloat())
+        }
         cropFrame = null
     }
 
@@ -131,6 +144,7 @@ fun MediaCropDialog(
                                         var activeMode = RectDragMode.None
                                         var previousCentroid: Offset? = null
                                         var previousDistance: Float? = null
+                                        onUserActivity()
                                         while (true) {
                                             val event = awaitPointerEvent()
                                             val pressed = event.changes.filter { it.pressed }
@@ -185,6 +199,17 @@ fun MediaCropDialog(
                 TextButton(onClick = onDismiss, enabled = !isCropping) {
                     Text(stringResource(R.string.cancel), color = Color(0xFF24D366))
                 }
+                if (allowRotate) {
+                    TextButton(
+                        onClick = {
+                            rotationDegrees = (rotationDegrees + 90) % 360
+                        },
+                        enabled = currentBitmap != null && !isCropping,
+                    ) {
+                        Icon(Icons.Default.RotateRight, contentDescription = stringResource(R.string.rotate))
+                        Text(stringResource(R.string.rotate))
+                    }
+                }
                 Button(
                     enabled = currentBitmap != null && cropFrame != null && imageBounds != null && !isCropping,
                     onClick = {
@@ -225,6 +250,11 @@ private fun loadBitmap(context: Context, uri: Uri): Bitmap {
             BitmapFactory.decodeStream(input)
         }
     } ?: error("Could not decode image")
+}
+
+private fun rotateBitmap(bitmap: Bitmap, degrees: Float): Bitmap {
+    val matrix = Matrix().apply { postRotate(degrees) }
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
 
 private fun imageDisplayBounds(bitmap: Bitmap, previewSize: IntSize): Rect {

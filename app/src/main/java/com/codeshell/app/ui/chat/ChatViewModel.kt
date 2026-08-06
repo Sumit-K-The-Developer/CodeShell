@@ -116,6 +116,11 @@ class ChatViewModel(
     init {
         currentUserId?.let { loadSession(it) }
         viewModelScope.launch {
+            BackgroundUploadRegistry.observe(chatId).collect { uploads ->
+                _uiState.update { it.copy(pendingUploads = uploads) }
+            }
+        }
+        viewModelScope.launch {
             val draft = appPreferences.getChatDraft(chatId)
             if (draft.isNotBlank()) {
                 _uiState.update { state ->
@@ -140,6 +145,37 @@ class ChatViewModel(
         viewModelScope.launch {
             appPreferences.profilePicturesEnabled.collect { enabled ->
                 _uiState.update { it.copy(profilePicturesEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperEnabled.collect { enabled ->
+                _uiState.update { it.copy(chatWallpaperEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperOverlay.collect { overlay ->
+                _uiState.update { it.copy(chatWallpaperOverlay = overlay) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperSource(chatId).collect { source ->
+                _uiState.update { it.copy(wallpaperSource = source) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperVaultId(chatId).collect { vaultId ->
+                val uri = if (vaultId.isNullOrBlank()) {
+                    null
+                } else {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            VaultRepository(getApplication()).getVaultFileById(vaultId)
+                                ?.takeIf { it.exists() }
+                                ?.let { Uri.fromFile(it) }
+                        }.getOrNull()
+                    }
+                }
+                _uiState.update { it.copy(wallpaperVaultId = vaultId, wallpaperVaultImageUri = uri) }
             }
         }
     }
@@ -179,7 +215,7 @@ class ChatViewModel(
         if (blockIfOffline()) return
 
         // Draft attachments are dispatched first. Each one uploads and sends on
-        // the process-global coordinator; progress surfaces via pendingUploads.
+            // the process-global coordinator; progress surfaces via pendingUploads.
         // They are removed from the draft list immediately so the user cannot
         // re-trigger them by pressing send again. Typed text accompanies the
         // first draft as a caption inside the media bubble (like attaching text
@@ -210,7 +246,7 @@ class ChatViewModel(
             // Run on the process-global coordinator so the send survives the user
             // leaving the chat screen or closing the app until it completes / is
             // cancelled manually. No progress notification is posted.
-            BackgroundWorkCoordinator.launch {
+            BackgroundWorkCoordinator.launch(getApplication<Application>()) {
                 try {
                     _uiState.update { it.copy(isSending = true, errorMessage = null) }
                     presenceRepository.setTyping(userId, chatId, isTyping = false)
@@ -271,7 +307,13 @@ class ChatViewModel(
      */
     fun addPickedFileDraft(uri: Uri) {
         val resolver = getApplication<Application>().contentResolver
-        addDraftMedia(uri, MessageType.FILE, queryDisplayName(resolver, uri), queryFileSize(resolver, uri))
+        val mimeType = resolver.getType(uri).orEmpty().lowercase()
+        val type = when {
+            mimeType.startsWith("image/") -> MessageType.IMAGE
+            mimeType.startsWith("video/") -> MessageType.VIDEO
+            else -> MessageType.FILE
+        }
+        addDraftMedia(uri, type, queryDisplayName(resolver, uri), queryFileSize(resolver, uri))
     }
 
     /**
@@ -337,7 +379,13 @@ class ChatViewModel(
                 }
                 content.fileUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "file"
-                    addDraftMedia(uri, MessageType.FILE, name, null)
+                    val mimeType = resolver.getType(uri).orEmpty().lowercase()
+                    val type = when {
+                        mimeType.startsWith("image/") -> MessageType.IMAGE
+                        mimeType.startsWith("video/") -> MessageType.VIDEO
+                        else -> MessageType.FILE
+                    }
+                    addDraftMedia(uri, type, name, queryFileSize(resolver, uri))
                 }
             }
         }
@@ -365,6 +413,7 @@ class ChatViewModel(
 
     fun cancelPendingUpload(localId: String) {
         activeUploadJobs.remove(localId)?.cancel()
+        BackgroundUploadRegistry.cancel(localId)
         activeUploadMessageIds.remove(localId)?.let { messageId ->
             storageRepository.cancelUpload(messageId)
         }
@@ -372,6 +421,7 @@ class ChatViewModel(
         _uiState.update { state ->
             state.copy(pendingUploads = state.pendingUploads.filterNot { it.localId == localId })
         }
+        BackgroundUploadRegistry.remove(localId)
     }
 
     fun sendImage(uri: Uri) {
@@ -418,13 +468,14 @@ class ChatViewModel(
         )
 
         _uiState.update { it.copy(pendingUploads = it.pendingUploads + pending, errorMessage = null) }
+        BackgroundUploadRegistry.upsert(chatId, pending)
 
         // Run on the process-global coordinator so the upload + send survives
         // the user leaving the chat screen or closing the app until it
         // completes / is cancelled manually. No progress notification is posted;
-        // in-app progress is driven via the pendingUploads UI state which the
-        // active chat screen observes.
-        val job = BackgroundWorkCoordinator.launch {
+        // in-app progress is driven via the pendingUploads UI state; the
+        // foreground notification intentionally uses neutral shell wording.
+        val job = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             presenceRepository.setTyping(userId, chatId, isTyping = false)
             val messageId = UUID.randomUUID().toString()
             activeUploadMessageIds[localId] = messageId
@@ -473,23 +524,14 @@ class ChatViewModel(
                         errorMessage = errorMessage
                     )
                 }
+                BackgroundUploadRegistry.remove(localId)
                 activeUploadMessageIds.remove(localId)
                 return@launch
             }
 
             val (uploadUri, uploadSize) = preparedMedia.getOrThrow()
 
-            _uiState.update { state ->
-                state.copy(
-                    pendingUploads = state.pendingUploads.map { upload ->
-                        if (upload.localId == localId) {
-                            upload.copy(stage = UploadStage.UPLOADING, progress = 0f)
-                        } else {
-                            upload
-                        }
-                    }
-                )
-            }
+            updatePendingUpload(localId) { it.copy(stage = UploadStage.UPLOADING, progress = 0f) }
 
             val uploadResult = storageRepository.uploadChatMedia(
                 chatId = chatId,
@@ -497,17 +539,7 @@ class ChatViewModel(
                 localUri = uploadUri,
                 contentResolver = resolver
             ) { progress ->
-                _uiState.update { state ->
-                    state.copy(
-                        pendingUploads = state.pendingUploads.map { upload ->
-                            if (upload.localId == localId) {
-                                upload.copy(stage = UploadStage.UPLOADING, progress = progress)
-                            } else {
-                                upload
-                            }
-                        }
-                    )
-                }
+                updatePendingUpload(localId) { it.copy(stage = UploadStage.UPLOADING, progress = progress) }
             }
 
             uploadResult.fold(
@@ -531,6 +563,7 @@ class ChatViewModel(
                             errorMessage = messagingErrorMessage(sendResult.exceptionOrNull())
                         )
                     }
+                    BackgroundUploadRegistry.remove(localId)
                 },
                 onFailure = { error ->
                     if (error is CancellationException) {
@@ -543,12 +576,31 @@ class ChatViewModel(
                             errorMessage = error.message ?: "Upload failed"
                         )
                     }
+                    BackgroundUploadRegistry.remove(localId)
                 }
             )
             activeUploadJobs.remove(localId)
             activeUploadMessageIds.remove(localId)
         }
         activeUploadJobs[localId] = job
+        BackgroundUploadRegistry.setCanceler(localId) {
+            job.cancel()
+            activeUploadMessageIds[localId]?.let(storageRepository::cancelUpload)
+        }
+    }
+
+    private fun updatePendingUpload(
+        localId: String,
+        transform: (PendingUpload) -> PendingUpload,
+    ) {
+        _uiState.update { state ->
+            state.copy(
+                pendingUploads = state.pendingUploads.map { upload ->
+                    if (upload.localId == localId) transform(upload) else upload
+                },
+            )
+        }
+        BackgroundUploadRegistry.update(chatId, localId, transform)
     }
 
     private fun removePendingUpload(localId: String, messageId: String) {
@@ -558,6 +610,7 @@ class ChatViewModel(
         _uiState.update { state ->
             state.copy(pendingUploads = state.pendingUploads.filterNot { it.localId == localId })
         }
+        BackgroundUploadRegistry.remove(localId)
     }
 
     fun unsendMessage(messageId: String) {
@@ -1036,13 +1089,8 @@ class ChatViewModel(
                 presenceRepository.setActiveInChat(userId, null)
             }
         }
-        activeUploadJobs.values.forEach { it.cancel() }
-        activeUploadJobs.clear()
-        activeUploadMessageIds.keys.forEach { localId ->
-            activeUploadMessageIds[localId]?.let { storageRepository.cancelUpload(it) }
-        }
-        activeUploadMessageIds.clear()
-        VideoUploadProcessor.cancelActive()
+        // Background uploads are intentionally not tied to this ViewModel.
+        // Leaving a chat must not cancel the process-global transfer.
         super.onCleared()
     }
 
@@ -1106,6 +1154,11 @@ data class ChatUiState(
     val chatInterfaceStyle: ChatInterfaceStyle = ChatInterfaceStyle.DEFAULT,
     val chatMessageFontScale: Float = ChatMessageFontScale.DEFAULT,
     val profilePicturesEnabled: Boolean = false,
+    val chatWallpaperEnabled: Boolean = true,
+    val chatWallpaperOverlay: Int = com.codeshell.app.data.preferences.AppPreferences.CHAT_WALLPAPER_OVERLAY_DEFAULT,
+    val wallpaperSource: String = com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_AVATAR,
+    val wallpaperVaultId: String? = null,
+    val wallpaperVaultImageUri: Uri? = null,
     val isBlocking: Boolean = false,
     val isLoadingOlderMessages: Boolean = false,
     val hasMoreOlderMessages: Boolean = true,

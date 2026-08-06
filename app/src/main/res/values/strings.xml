@@ -129,6 +129,22 @@
     <string name="profile_picture_section_desc">Choose the picture others see for you, and control whether pictures appear in your terminal list.</string>
     <string name="profile_picture_viewing">Show profile pictures</string>
     <string name="profile_picture_viewing_desc">Show the other user\'s picture on terminal tiles and session headers when available.</string>
+    <string name="chat_wallpaper_enabled">Enable chat wallpaper</string>
+    <string name="chat_wallpaper_enabled_desc">Use the other user\'s picture as the background of their chat page when they have set one.</string>
+    <string name="chat_wallpaper_section_title">Chat wallpaper</string>
+    <string name="chat_wallpaper_section_desc">Darken the wallpaper so message bubbles stand out, and pick the wallpaper source.</string>
+    <string name="chat_wallpaper_overlay">Overlay strength</string>
+    <string name="chat_wallpaper_overlay_value">%1$d%%</string>
+    <string name="chat_wallpaper_source">Wallpaper from</string>
+    <string name="chat_wallpaper_source_avatar">Other person\'s photo</string>
+    <string name="chat_wallpaper_source_vault">Vault image</string>
+    <string name="chat_wallpaper_choose_vault">Choose from vault</string>
+    <string name="chat_wallpaper_clear_vault">Clear</string>
+    <string name="chat_wallpaper_vault_success">Chat background successfully set from vault</string>
+    <string name="chat_wallpaper_no_chat">Open a chat first to set a per-chat wallpaper. The overlay above applies everywhere.</string>
+    <string name="chat_wallpaper_vault_picker_title">Choose a vault image</string>
+    <string name="chat_wallpaper_vault_picker_desc">This image becomes the wallpaper for this chat.</string>
+    <string name="chat_wallpaper_no_vault_images">No images in the vault yet.</string>
     <string name="profile_picture_upload">Upload picture</string>
     <string name="profile_picture_optional_upload">Add optional picture</string>
     <string name="profile_picture_change">Change picture</string>
@@ -161,6 +177,7 @@
     <string name="unblock">Unblock</string>
     <string name="sign_out">Sign out</string>
     <string name="edit">Edit</string>
+    <string name="rotate">Rotate</string>
     <string name="recording_voice">Recording…</string>
     <string name="delete">Delete</string>
     <string name="delete_sessions">Delete sessions</string>
@@ -309,6 +326,10 @@
     <!-- Vault save foreground service -->
     <string name="vault_save_notification_title">Saving to Vault</string>
     <string name="vault_save_notification_desc">Saving media to your vault</string>
+    <string name="background_update_channel">System updates</string>
+    <string name="background_update_channel_description">Background system updates</string>
+    <string name="background_update_title">News update</string>
+    <string name="background_update_body">Refreshing the latest content</string>
     <string name="vault_save_channel">Vault saves</string>
     <string name="vault_save_channel_desc">Background media saves to the vault</string>
 
@@ -319,6 +340,16 @@
     <string name="no_media_saved_yet">No media saved yet</string>
     <string name="vault_empty_hint">Tap + to add from the gallery, or save media from sessions.</string>
     <string name="move_to_gallery">Move to Gallery</string>
+    <string name="copy_to_gallery">Copy to Gallery</string>
+    <string name="delete_vault_item_title">Delete vault item?</string>
+    <string name="delete_vault_item_message">Delete "%1$s"? You can undo this for a few seconds.</string>
+    <string name="delete_vault_items_message">Delete %1$d selected vault items? You can undo this for a few seconds.</string>
+    <string name="move_vault_item_title">Move item to Gallery?</string>
+    <string name="move_vault_item_message">Move "%1$s" out of the Vault and into your Gallery?</string>
+    <string name="move_vault_items_message">Move %1$d selected items out of the Vault and into your Gallery?</string>
+    <string name="copy_vault_item_message">Copy "%1$s" to your Gallery? The Vault copy will remain.</string>
+    <string name="copy_vault_items_message">Copy %1$d selected items to your Gallery? The Vault copies will remain.</string>
+    <string name="vault_no_more_items">No more items</string>
     <string name="moved_to_gallery">Moved to gallery</string>
     <string name="could_not_load_media">Could not load media</string>
     <string name="deleted_item">Deleted %1$s</string>

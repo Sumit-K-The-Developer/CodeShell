@@ -36,13 +36,29 @@ class NewsCache private constructor(private val cacheDir: File) {
         }
     }
 
-    fun save(categoryId: String, region: NewsRegion, articles: List<NewsArticle>) {
+    fun save(
+        categoryId: String,
+        region: NewsRegion,
+        articles: List<NewsArticle>,
+        fetchedAt: Long = System.currentTimeMillis(),
+    ) {
         val file = cacheFile(categoryId, region)
         try {
             cacheDir.mkdirs()
+            val existingFetchedAt = if (file.exists()) {
+                runCatching {
+                    json.decodeFromString<CacheEntry>(file.readText()).fetchedAt
+                }.getOrDefault(0L)
+            } else {
+                0L
+            }
+            // A slower request may finish after a newer refresh. Do not let it
+            // replace the newer result in the persistent cache.
+            if (existingFetchedAt > fetchedAt) return
             val capped = articles.take(MAX_ARTICLES)
             val entry = CacheEntry(
                 timestamp = System.currentTimeMillis(),
+                fetchedAt = fetchedAt,
                 articleCount = capped.size,
                 articles = capped,
             )
@@ -140,6 +156,7 @@ class NewsCache private constructor(private val cacheDir: File) {
     @Serializable
     private data class CacheEntry(
         val timestamp: Long = 0L,
+        val fetchedAt: Long = 0L,
         val articleCount: Int = 0,
         val articles: List<NewsArticle> = emptyList(),
     )

@@ -39,28 +39,31 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     // Items staged for deletion that can still be restored via the Undo action.
     // The real disk deletion is deferred until the undo window elapses.
     private var pendingDeleteJob: Job? = null
-    private var pendingDeleteItems: List<VaultItem> = emptyList()
 
     fun loadItems() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val items = vaultRepository.getAllItems()
-            _uiState.update { it.copy(isLoading = false, items = items) }
+                .sortedByDescending { it.dateSaved }
+            val pendingIds = PendingVaultDeletionRegistry.pendingIds()
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    items = items.filterNot { item -> item.id in pendingIds },
+                )
+            }
         }
     }
 
     fun deleteItem(item: VaultItem) {
-        viewModelScope.launch {
-            vaultRepository.deleteItem(item)
-            loadItems()
-        }
+        stageDeletion(listOf(item))
     }
 
     /**
      * Save media sourced from a chat URL into the vault. Runs on the
      * process-global [BackgroundWorkCoordinator] so it persists after the
      * originating screen / ViewModel is destroyed and after the app is closed,
-     * with no progress notification. In-app progress is published via
+     * with a neutral foreground notification. In-app progress is published via
      * [VaultSaveTracker] (observed by [MediaViewerScreen]).
      */
     fun saveToVault(
@@ -75,7 +78,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         VaultSaveTracker.reset()
         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
 
-        val job = BackgroundWorkCoordinator.launch {
+        val job = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             try {
                 vaultRepository.saveFromUrlWithProgress(
                     url = url,
@@ -114,7 +117,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         urisSaveJob?.cancel()
         _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
 
-        urisSaveJob = BackgroundWorkCoordinator.launch {
+        urisSaveJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             try {
                 vaultRepository.saveFromUris(uris, deleteSource = deleteSource) { completed, total ->
                     _uiState.update { it.copy(saveProgress = completed to total) }
@@ -151,7 +154,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         urisSaveJob?.cancel()
         _uiState.update { it.copy(isSaving = true) }
-        urisSaveJob = BackgroundWorkCoordinator.launch {
+        urisSaveJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             try {
                 vaultRepository.saveFromUri(uri, fileName, mimeType, sourceChatId, sourceMessageId, deleteSource = deleteSource)
                     .onSuccess { loadItems() }
@@ -180,15 +183,58 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         vaultRepository.getVaultFile(item)?.takeIf { it.exists() }
     }
 
+    fun replaceImage(item: VaultItem, sourceUri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+            vaultRepository.replaceImage(item, sourceUri)
+                .onSuccess { updated ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isSaving = false,
+                            items = state.items
+                                .map { if (it.id == updated.id) updated else it }
+                                .sortedByDescending { it.dateSaved },
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(isSaving = false, errorMessage = error.message ?: "Could not update image")
+                    }
+                }
+        }
+    }
+
     fun moveToGallery(item: VaultItem) {
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true) }
             vaultRepository.moveToGallery(item)
                 .onSuccess {
-                    _uiState.update { it.copy(exportSuccess = true, isExporting = false) }
+                    _uiState.update { state ->
+                        state.copy(
+                            exportSuccess = true,
+                            isExporting = false,
+                            items = state.items.filterNot { it.id == item.id },
+                        )
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(errorMessage = error.message, isExporting = false) }
+            }
+        }
+    }
+
+    fun copyToGallery(item: VaultItem) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExporting = true, errorMessage = null) }
+            vaultRepository.copyToGallery(item)
+                .onSuccess {
+                    _uiState.update { it.copy(exportSuccess = true, isExporting = false) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(errorMessage = error.message, isExporting = false)
+                    }
                 }
         }
     }
@@ -197,7 +243,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         sendJob?.cancel()
         _uiState.update { it.copy(isSending = true, sendProgress = null) }
 
-        sendJob = BackgroundWorkCoordinator.launch {
+        sendJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             try {
                 val bytesResult = vaultRepository.getDecryptedBytes(vaultItem)
                 bytesResult.onSuccess { bytes ->
@@ -301,18 +347,46 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true) }
             var lastError: String? = null
+            val movedIds = mutableSetOf<String>()
             itemsToMove.forEach { item ->
-                vaultRepository.moveToGallery(item).onFailure { error ->
+                vaultRepository.moveToGallery(item)
+                    .onSuccess { movedIds += item.id }
+                    .onFailure { error ->
+                        lastError = error.message
+                    }
+            }
+            _uiState.update {
+                it.copy(
+                    isExporting = false,
+                    exportSuccess = movedIds.isNotEmpty(),
+                    items = it.items.filterNot { item -> item.id in movedIds },
+                    selectionMode = false,
+                    selectedItems = emptySet(),
+                    errorMessage = lastError
+                )
+            }
+        }
+    }
+
+    fun copySelectedToGallery() {
+        val itemsToCopy = _uiState.value.items.filter { it.id in _uiState.value.selectedItems }
+        if (itemsToCopy.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExporting = true, errorMessage = null) }
+            var lastError: String? = null
+            itemsToCopy.forEach { item ->
+                vaultRepository.copyToGallery(item).onFailure { error ->
                     lastError = error.message
                 }
             }
             _uiState.update {
                 it.copy(
                     isExporting = false,
-                    exportSuccess = true,
+                    exportSuccess = lastError == null,
                     selectionMode = false,
                     selectedItems = emptySet(),
-                    errorMessage = lastError
+                    errorMessage = lastError,
                 )
             }
         }
@@ -336,25 +410,27 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun stageDeletion(items: List<VaultItem>) {
         pendingDeleteJob?.cancel()
-        if (pendingDeleteItems.isNotEmpty()) {
-            val toFlush = pendingDeleteItems
-            pendingDeleteItems = emptyList()
-            viewModelScope.launch { toFlush.forEach { vaultRepository.deleteItem(it) } }
-        }
         val stagedIds = items.mapTo(mutableSetOf()) { it.id }
-        pendingDeleteItems = items
+        val token = PendingVaultDeletionRegistry.stage(items)
         _uiState.update { state ->
             state.copy(
-                items = state.items.filterNot { it.id in stagedIds },
+                items = state.items.filterNot {
+                    it.id in stagedIds || it.id in PendingVaultDeletionRegistry.pendingIds()
+                },
                 selectionMode = false,
                 selectedItems = emptySet(),
             )
         }
-        pendingDeleteJob = viewModelScope.launch {
+        pendingDeleteJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             delay(DELETE_UNDO_WINDOW_MS)
-            val toDelete = pendingDeleteItems
-            pendingDeleteItems = emptyList()
-            toDelete.forEach { vaultRepository.deleteItem(it) }
+            val toDelete = PendingVaultDeletionRegistry.flush(token)
+            toDelete.forEach { item ->
+                vaultRepository.deleteItem(item).onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(errorMessage = error.message ?: "Could not delete ${item.fileName}")
+                    }
+                }
+            }
         }
     }
 
@@ -362,12 +438,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun undoPendingDelete() {
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
-        if (pendingDeleteItems.isEmpty()) return
-        val restored = pendingDeleteItems
-        pendingDeleteItems = emptyList()
+        val restored = PendingVaultDeletionRegistry.undo()
+        if (restored.isEmpty()) return
         _uiState.update { state ->
             state.copy(
-                items = (restored + state.items).sortedByDescending { it.dateSaved },
+                items = (restored + state.items)
+                    .distinctBy { it.id }
+                    .sortedByDescending { it.dateSaved },
             )
         }
     }
@@ -396,7 +473,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         // Give the Snackbar's Undo action a chance to run before the real
         // disk deletion is performed (SnackbarDuration.Short is ~4s).
-        private const val DELETE_UNDO_WINDOW_MS = 8_000L
+        private const val DELETE_UNDO_WINDOW_MS = 5_000L
     }
 }
 

@@ -95,7 +95,7 @@ service cloud.firestore {
             && request.resource.data.type == 'text'
             && request.resource.data.content is string
             && request.resource.data.timestamp == resource.data.timestamp
-            && request.time < resource.data.timestamp + duration.value(300, 's')
+            && request.time < resource.data.timestamp + duration.value(900, 's')
             && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['content', 'editedAt']))
           ||

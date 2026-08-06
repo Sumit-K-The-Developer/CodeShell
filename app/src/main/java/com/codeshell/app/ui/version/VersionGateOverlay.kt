@@ -96,7 +96,5 @@ fun rememberExitAppAction(): () -> Unit {
             activity.finishAndRemoveTask()
             activity.moveTaskToBack(true)
         }
-        android.os.Process.killProcess(android.os.Process.myPid())
-        kotlin.system.exitProcess(0)
     }
 }

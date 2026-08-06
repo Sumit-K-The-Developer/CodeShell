@@ -30,7 +30,8 @@ object TerminalNotificationManager {
     const val EXTRA_NEWS_REGION_CC = "extra_news_region_cc"
 
     private const val PREFS = "terminal_notifications"
-    private const val CHANNEL_ID = "terminal_alerts"
+    // Versioned so existing installs receive the badge-disabled channel.
+    private const val CHANNEL_ID = "terminal_alerts_v2"
     private const val COUNT_PREFIX = "count_"
 
     fun showMessageNotification(context: Context, chatId: String) {
@@ -184,10 +185,6 @@ object TerminalNotificationManager {
                 },
             )
 
-        if (!isCall && count > 1) {
-            builder.setNumber(count)
-        }
-
         if (!canPostNotifications(context)) return
         NotificationManagerCompat.from(context).notify(notificationId(chatId, isCall), builder.build())
     }
@@ -222,6 +219,7 @@ object TerminalNotificationManager {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = context.getString(R.string.terminal_alert_channel_desc)
+            setShowBadge(false)
         }
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }

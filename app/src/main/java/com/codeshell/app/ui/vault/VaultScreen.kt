@@ -3,24 +3,36 @@ package com.codeshell.app.ui.vault
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,11 +51,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +85,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,6 +98,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -93,6 +113,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
@@ -103,18 +124,22 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.codeshell.app.R
 import com.codeshell.app.data.model.VaultItem
+import com.codeshell.app.ui.components.MediaCropDialog
 import com.codeshell.app.ui.theme.EditorBackground
 import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.util.findActivity
+import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.util.formatFileSize
 import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,6 +147,7 @@ fun VaultScreen(
     onNavigateBack: () -> Unit,
     onOpenChat: (String) -> Unit,
     onNavigateToHomeForVaultSend: (() -> Unit)? = null,
+    onInactivityTimeout: () -> Unit = onNavigateBack,
 ) {
     val viewModel: VaultViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -141,6 +167,34 @@ fun VaultScreen(
     var showSelectionMenu by remember { mutableStateOf(false) }
     var showSendConfirmationDialog by remember { mutableStateOf(false) }
     var pendingSendItem by remember { mutableStateOf<VaultItem?>(null) }
+    var pendingDeleteItem by remember { mutableStateOf<VaultItem?>(null) }
+    var showDeleteSelectionConfirmation by remember { mutableStateOf(false) }
+    var pendingMoveItem by remember { mutableStateOf<VaultItem?>(null) }
+    var showMoveSelectionConfirmation by remember { mutableStateOf(false) }
+    var pendingCopyItem by remember { mutableStateOf<VaultItem?>(null) }
+    var showCopySelectionConfirmation by remember { mutableStateOf(false) }
+    var editingImageItem by remember { mutableStateOf<VaultItem?>(null) }
+    var editingImageUri by remember { mutableStateOf<Uri?>(null) }
+    var activityGeneration by remember { mutableIntStateOf(0) }
+
+    val touchActivityModifier = Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.any { it.changedToDown() }) {
+                    activityGeneration++
+                }
+            }
+        }
+    }
+
+    TerminalInactivityEffect(
+        onInactivityTimeout,
+        activityGeneration,
+        uiState.isLoading,
+        uiState.isSaving,
+        uiState.isExporting,
+    )
 
     // Use PickMultipleVisualMedia so the system photo/video gallery opens
     // (not a generic file manager).  This contract returns content URIs that
@@ -172,6 +226,14 @@ fun VaultScreen(
         viewModel.loadItems()
     }
 
+    LaunchedEffect(editingImageItem?.id) {
+        editingImageUri = editingImageItem?.let { item ->
+            withContext(Dispatchers.IO) {
+                viewModel.getVaultFile(item)?.let(Uri::fromFile)
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         // Safety net: if the screen leaves while suppressHideOnHome was set
         // (e.g. process went away) make sure the flag is cleared so the
@@ -186,10 +248,38 @@ fun VaultScreen(
     fun performDelete(item: VaultItem) {
         viewModel.deleteItemWithUndo(item)
         scope.launch {
+            val dismissJob = launch {
+                delay(5_000L)
+                snackbarHostState.currentSnackbarData?.dismiss()
+            }
             val result = snackbarHostState.showSnackbar(
                 message = context.getString(R.string.deleted_item, item.fileName),
                 actionLabel = context.getString(R.string.undo),
             )
+            dismissJob.cancel()
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoPendingDelete()
+            }
+        }
+    }
+
+    fun performDeleteSelection() {
+        val count = uiState.selectedItems.size
+        viewModel.deleteSelectedItems()
+        scope.launch {
+            val dismissJob = launch {
+                delay(5_000L)
+                snackbarHostState.currentSnackbarData?.dismiss()
+            }
+            val result = snackbarHostState.showSnackbar(
+                message = if (count == 1) {
+                    context.getString(R.string.deleted_one_item)
+                } else {
+                    context.getString(R.string.deleted_count_items, count)
+                },
+                actionLabel = context.getString(R.string.undo),
+            )
+            dismissJob.cancel()
             if (result == SnackbarResult.ActionPerformed) {
                 viewModel.undoPendingDelete()
             }
@@ -197,6 +287,7 @@ fun VaultScreen(
     }
 
     Scaffold(
+        modifier = touchActivityModifier,
         containerColor = EditorBackground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -253,7 +344,15 @@ fun VaultScreen(
                                     text = { Text(stringResource(R.string.move_to_gallery)) },
                                     onClick = {
                                         showSelectionMenu = false
-                                        viewModel.moveSelectedToGallery()
+                                        showMoveSelectionConfirmation = true
+                                    },
+                                    enabled = !uiState.isExporting
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.copy_to_gallery)) },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        showCopySelectionConfirmation = true
                                     },
                                     enabled = !uiState.isExporting
                                 )
@@ -261,21 +360,7 @@ fun VaultScreen(
                                     text = { Text(stringResource(R.string.delete)) },
                                     onClick = {
                                         showSelectionMenu = false
-                                        val count = uiState.selectedItems.size
-                                        viewModel.deleteSelectedItems()
-                                        scope.launch {
-                                            val result = snackbarHostState.showSnackbar(
-                                                message = if (count == 1) {
-                                                    context.getString(R.string.deleted_one_item)
-                                                } else {
-                                                    context.getString(R.string.deleted_count_items, count)
-                                                },
-                                                actionLabel = context.getString(R.string.undo),
-                                            )
-                                            if (result == SnackbarResult.ActionPerformed) {
-                                                viewModel.undoPendingDelete()
-                                            }
-                                        }
+                                        showDeleteSelectionConfirmation = true
                                     },
                                     enabled = !uiState.isExporting
                                 )
@@ -410,11 +495,14 @@ fun VaultScreen(
     uiState.selectedItem?.let { item ->
         VaultItemViewerDialog(
             item = item,
+            items = uiState.items,
             viewModel = viewModel,
+            onSelectItem = viewModel::selectItem,
+            onUserActivity = { activityGeneration++ },
             onDismiss = { viewModel.selectItem(null) },
             onDelete = {
                 viewModel.selectItem(null)
-                performDelete(item)
+                pendingDeleteItem = item
             },
             onSend = {
                 viewModel.selectItem(null)
@@ -423,8 +511,163 @@ fun VaultScreen(
             },
             onMoveToGallery = {
                 viewModel.selectItem(null)
-                viewModel.moveToGallery(item)
-            }
+                pendingMoveItem = item
+            },
+            onCopyToGallery = {
+                viewModel.selectItem(null)
+                pendingCopyItem = item
+            },
+            onEditImage = {
+                viewModel.selectItem(null)
+                editingImageItem = item
+            },
+        )
+    }
+
+    pendingDeleteItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteItem = null },
+            title = { Text(stringResource(R.string.delete_vault_item_title)) },
+            text = { Text(stringResource(R.string.delete_vault_item_message, item.fileName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDeleteItem = null
+                    performDelete(item)
+                }) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteItem = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showDeleteSelectionConfirmation) {
+        val count = uiState.selectedItems.size
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectionConfirmation = false },
+            title = { Text(stringResource(R.string.delete_vault_item_title)) },
+            text = { Text(stringResource(R.string.delete_vault_items_message, count)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteSelectionConfirmation = false
+                    performDeleteSelection()
+                }) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectionConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    pendingMoveItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingMoveItem = null },
+            title = { Text(stringResource(R.string.move_vault_item_title)) },
+            text = { Text(stringResource(R.string.move_vault_item_message, item.fileName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingMoveItem = null
+                    viewModel.moveToGallery(item)
+                }) {
+                    Text(stringResource(R.string.move_to_gallery))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMoveItem = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showMoveSelectionConfirmation) {
+        val count = uiState.selectedItems.size
+        AlertDialog(
+            onDismissRequest = { showMoveSelectionConfirmation = false },
+            title = { Text(stringResource(R.string.move_vault_item_title)) },
+            text = { Text(stringResource(R.string.move_vault_items_message, count)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showMoveSelectionConfirmation = false
+                    viewModel.moveSelectedToGallery()
+                }) {
+                    Text(stringResource(R.string.move_to_gallery))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMoveSelectionConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    pendingCopyItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingCopyItem = null },
+            title = { Text(stringResource(R.string.copy_to_gallery)) },
+            text = { Text(stringResource(R.string.copy_vault_item_message, item.fileName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingCopyItem = null
+                    viewModel.copyToGallery(item)
+                }) {
+                    Text(stringResource(R.string.copy_to_gallery))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCopyItem = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showCopySelectionConfirmation) {
+        val count = uiState.selectedItems.size
+        AlertDialog(
+            onDismissRequest = { showCopySelectionConfirmation = false },
+            title = { Text(stringResource(R.string.copy_to_gallery)) },
+            text = { Text(stringResource(R.string.copy_vault_items_message, count)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCopySelectionConfirmation = false
+                    viewModel.copySelectedToGallery()
+                }) {
+                    Text(stringResource(R.string.copy_to_gallery))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCopySelectionConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    val editItem = editingImageItem
+    val editUri = editingImageUri
+    if (editItem != null && editUri != null) {
+        MediaCropDialog(
+            sourceUri = editUri,
+            allowRotate = true,
+            onDismiss = {
+                editingImageItem = null
+                editingImageUri = null
+            },
+            onCropped = { croppedUri ->
+                viewModel.replaceImage(editItem, croppedUri)
+                editingImageItem = null
+                editingImageUri = null
+            },
         )
     }
 
@@ -491,10 +734,10 @@ private fun VaultItemTile(
     onToggleSelection: () -> Unit,
     onLongPress: () -> Unit,
 ) {
-    var thumbnail by remember(item.id) { mutableStateOf<Bitmap?>(null) }
-    var loading by remember(item.id) { mutableStateOf(true) }
+    var thumbnail by remember(item.id, item.contentVersion) { mutableStateOf<Bitmap?>(null) }
+    var loading by remember(item.id, item.contentVersion) { mutableStateOf(true) }
 
-    LaunchedEffect(item.id) {
+    LaunchedEffect(item.id, item.contentVersion) {
         loading = true
         val bytesResult = withContext(Dispatchers.IO) {
             viewModel.getThumbnailBytes(item)
@@ -647,17 +890,44 @@ private fun VaultItemTile(
 @Composable
 private fun VaultItemViewerDialog(
     item: VaultItem,
+    items: List<VaultItem>,
     viewModel: VaultViewModel,
+    onSelectItem: (VaultItem) -> Unit,
+    onUserActivity: () -> Unit,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onSend: () -> Unit,
     onMoveToGallery: () -> Unit,
+    onCopyToGallery: () -> Unit,
+    onEditImage: () -> Unit,
 ) {
     var loading by remember(item.id) { mutableStateOf(true) }
     var bitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var videoFile by remember(item.id) { mutableStateOf<java.io.File?>(null) }
     var filePath by remember(item.id) { mutableStateOf<String?>(null) }
     var showOptionsMenu by remember { mutableStateOf(false) }
+    var showChrome by remember(item.id) { mutableStateOf(true) }
+    var slideDirection by remember { mutableIntStateOf(1) }
+    var edgeDirection by remember { mutableIntStateOf(0) }
+    var edgePulse by remember { mutableIntStateOf(0) }
+    val currentIndex = items.indexOfFirst { it.id == item.id }
+
+    fun selectAdjacent(offset: Int) {
+        val targetIndex = currentIndex + offset
+        items.getOrNull(targetIndex)?.let {
+            slideDirection = offset
+            onSelectItem(it)
+        } ?: run {
+            edgeDirection = offset
+            edgePulse++
+        }
+    }
+
+    LaunchedEffect(edgePulse) {
+        if (edgePulse == 0) return@LaunchedEffect
+        delay(700L)
+        edgeDirection = 0
+    }
 
     // Resolve the on-disk vault file once per item. For images we decode a
     // sampled bitmap straight from the file (avoids loading the whole file
@@ -683,7 +953,15 @@ private fun VaultItemViewerDialog(
                         BitmapFactory.decodeFile(file.absolutePath, opts)
                     }.getOrNull()
                 }
-                bitmap = decoded
+                bitmap = decoded?.let { source ->
+                    val orientation = runCatching {
+                        ExifInterface(file.absolutePath).getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION,
+                            ExifInterface.ORIENTATION_NORMAL,
+                        )
+                    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+                    orientBitmap(source, orientation)
+                }
             }
             item.isVideo -> {
                 videoFile = file
@@ -700,119 +978,279 @@ private fun VaultItemViewerDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-        ) {
-            when {
-                loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(color = Color.White)
-                    }
-                }
-                item.isImage && bitmap != null -> {
-                    ZoomableVaultImage(
-                        bitmap = bitmap!!,
-                        contentDescription = item.fileName,
-                    )
-                }
-                item.isVideo && videoFile != null -> {
-                    VaultVideoPlayer(
-                        videoUri = videoFile!!.absolutePath,
-                    )
-                }
-                !item.isImage && !item.isVideo && filePath != null -> {
-                    if (isPdfItem(item)) {
-                        VaultPdfViewer(pdfFile = File(filePath!!))
-                    } else {
-                        VaultFileInfoView(
-                            item = item,
-                            filePath = filePath!!,
-                        )
-                    }
-                }
-                else -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(stringResource(R.string.could_not_load_media), color = Color.White)
-                    }
-                }
-            }
-            IconButton(
-                onClick = onDismiss,
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.back),
-                    tint = Color.White,
-                )
+                    .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.any { it.changedToDown() }) {
+                                onUserActivity()
+                            }
+                        }
+                    }
+                }
+                .then(
+                        if (!item.isImage) {
+                            Modifier.pointerInput(item.id, items) {
+                                var horizontalDistance = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = { horizontalDistance = 0f },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        horizontalDistance += dragAmount
+                                        change.consume()
+                                    },
+                                    onDragEnd = {
+                                        when {
+                                            horizontalDistance < -80f -> selectAdjacent(1)
+                                            horizontalDistance > 80f -> selectAdjacent(-1)
+                                        }
+                                    },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AnimatedContent(
+                    targetState = item.id,
+                    transitionSpec = {
+                        if (slideDirection > 0) {
+                            (slideInHorizontally { it } + fadeIn()) togetherWith
+                                (slideOutHorizontally { -it } + fadeOut())
+                        } else {
+                            (slideInHorizontally { -it } + fadeIn()) togetherWith
+                                (slideOutHorizontally { it } + fadeOut())
+                        }
+                    },
+                    label = "vault_item_transition",
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    when {
+                        loading -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = Color.White)
+                            }
+                        }
+                        item.isImage && bitmap != null -> {
+                            ZoomableVaultImage(
+                                bitmap = bitmap!!,
+                                contentDescription = item.fileName,
+                                onTap = { showChrome = !showChrome },
+                                onSwipe = ::selectAdjacent,
+                            )
+                        }
+                        item.isVideo && videoFile != null -> {
+                            VaultVideoPlayer(
+                                videoUri = videoFile!!.absolutePath,
+                                onTap = { showChrome = !showChrome },
+                            )
+                        }
+                        !item.isImage && !item.isVideo && filePath != null -> {
+                            if (isPdfItem(item)) {
+                                VaultPdfViewer(
+                                    pdfFile = File(filePath!!),
+                                    chromeVisible = showChrome,
+                                    onTap = { showChrome = !showChrome },
+                                )
+                            } else {
+                                VaultFileInfoView(
+                                    item = item,
+                                    filePath = filePath!!,
+                                    onTap = { showChrome = !showChrome },
+                                )
+                            }
+                        }
+                        else -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(stringResource(R.string.could_not_load_media), color = Color.White)
+                            }
+                        }
+                    }
+                }
             }
 
-            Box(
+            AnimatedVisibility(
+                visible = edgeDirection != 0,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
+                    .align(if (edgeDirection > 0) Alignment.CenterEnd else Alignment.CenterStart),
+                enter = fadeIn() + slideInHorizontally { if (edgeDirection > 0) it else -it },
+                exit = fadeOut(),
             ) {
-                IconButton(onClick = { showOptionsMenu = true }) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.vault_no_more_items),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+
+            if (showChrome) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
+                ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = stringResource(R.string.more_options),
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.back),
                         tint = Color.White,
                     )
                 }
-                DropdownMenu(
-                    expanded = showOptionsMenu,
-                    onDismissRequest = { showOptionsMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.move_to_gallery)) },
-                        onClick = {
-                            showOptionsMenu = false
-                            onMoveToGallery()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.send_to_chat)) },
-                        onClick = {
-                            showOptionsMenu = false
-                            onSend()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.delete)) },
-                        onClick = {
-                            showOptionsMenu = false
-                            onDelete()
-                        }
-                    )
-                }
-            }
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                // The viewer's actions live only in the overflow menu (top-right),
-                // so the bottom bar is just the filename. This removes the duplicate
-                // Send/Delete icon buttons that previously sat here.
-                Text(
-                    text = item.fileName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                if (!item.isImage) Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    IconButton(
+                        onClick = { showOptionsMenu = true },
+                        modifier = Modifier.background(
+                            Color.Black.copy(alpha = 0.5f),
+                            CircleShape,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = stringResource(R.string.more_options),
+                            tint = Color.White,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOptionsMenu,
+                        onDismissRequest = { showOptionsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.move_to_gallery)) },
+                            onClick = {
+                                showOptionsMenu = false
+                                onMoveToGallery()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.send_to_chat)) },
+                            onClick = {
+                                showOptionsMenu = false
+                                onSend()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.copy_to_gallery)) },
+                            onClick = {
+                                showOptionsMenu = false
+                                onCopyToGallery()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.delete)) },
+                            onClick = {
+                                showOptionsMenu = false
+                                onDelete()
+                            }
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = item.fileName,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = formatFileSize(item.fileSize),
+                            color = Color.White.copy(alpha = 0.65f),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        if (item.isImage) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                IconButton(
+                                    onClick = onMoveToGallery,
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DriveFileMove,
+                                        contentDescription = stringResource(R.string.move_to_gallery),
+                                        tint = Color.White,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onCopyToGallery,
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = stringResource(R.string.copy_to_gallery),
+                                        tint = Color.White,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onSend,
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = stringResource(R.string.send_to_chat),
+                                        tint = Color.White,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onEditImage,
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = stringResource(R.string.edit),
+                                        tint = Color.White,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onDelete,
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = stringResource(R.string.delete),
+                                        tint = Color.White,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -822,9 +1260,12 @@ private fun VaultItemViewerDialog(
 private fun ZoomableVaultImage(
     bitmap: Bitmap,
     contentDescription: String,
+    onTap: () -> Unit = {},
+    onSwipe: (Int) -> Unit = {},
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         scale = (scale * zoomChange).coerceIn(1f, 5f)
@@ -853,17 +1294,47 @@ private fun ZoomableVaultImage(
                 translationY = offset.y
             }
             .transformable(state = transformState)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        if (scale > 1f) {
-                            scale = 1f
-                            offset = Offset.Zero
+            .pointerInput(bitmap) {
+                awaitEachGesture {
+                    val first = awaitPointerEvent().changes.firstOrNull()
+                        ?: return@awaitEachGesture
+                    var lastPosition = first.position
+                    var totalDrag = Offset.Zero
+                    var multiTouch = false
+                    var released = false
+
+                    while (!released) {
+                        val event = awaitPointerEvent()
+                        if (event.changes.size > 1) multiTouch = true
+                        val change = event.changes.firstOrNull { it.id == first.id }
+                            ?: break
+                        val delta = change.position - lastPosition
+                        lastPosition = change.position
+                        if (!multiTouch) totalDrag += delta
+                        released = !change.pressed
+                    }
+
+                    if (!multiTouch &&
+                        abs(totalDrag.x) > 80f &&
+                        abs(totalDrag.x) > abs(totalDrag.y)
+                    ) {
+                        onSwipe(if (totalDrag.x < 0f) 1 else -1)
+                    } else if (!multiTouch && totalDrag.getDistance() < 24f) {
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastTapTime < 300L) {
+                            if (scale > 1f) {
+                                scale = 1f
+                                offset = Offset.Zero
+                            } else {
+                                scale = 2.5f
+                            }
+                            lastTapTime = 0
                         } else {
-                            scale = 2.5f
+                            onTap()
+                            lastTapTime = now
                         }
                     }
-                )
+                }
             },
     )
 }
@@ -872,6 +1343,7 @@ private fun ZoomableVaultImage(
 @Composable
 private fun VaultVideoPlayer(
     videoUri: String,
+    onTap: () -> Unit = {},
 ) {    val context = LocalContext.current
     var showBuffering by remember(videoUri) { mutableStateOf(true) }
 
@@ -916,6 +1388,9 @@ private fun VaultVideoPlayer(
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
+            update = { playerView ->
+                playerView.setOnClickListener { onTap() }
+            },
             modifier = Modifier.fillMaxSize(),
         )
         if (showBuffering) {
@@ -941,6 +1416,8 @@ private fun isPdfItem(item: VaultItem): Boolean =
 @Composable
 private fun VaultPdfViewer(
     pdfFile: File,
+    chromeVisible: Boolean = true,
+    onTap: () -> Unit = {},
 ) {
     val renderMutex = remember { Mutex() }
     val density = LocalDensity.current
@@ -979,7 +1456,13 @@ private fun VaultPdfViewer(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 56.dp, bottom = 72.dp),
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { onTap() })
+                        }
+                        .padding(
+                            top = if (chromeVisible) 56.dp else 0.dp,
+                            bottom = if (chromeVisible) 72.dp else 0.dp,
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     item {
@@ -1072,6 +1555,7 @@ private fun VaultPdfPage(
 private fun VaultFileInfoView(
     item: VaultItem,
     filePath: String,
+    onTap: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -1094,6 +1578,9 @@ private fun VaultFileInfoView(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onTap() })
+            }
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -1149,6 +1636,40 @@ private fun calculateInSampleSize(
         }
     }
     return sampleSize
+}
+
+private fun orientBitmap(bitmap: Bitmap, orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+            matrix.setRotate(180f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.setRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.setRotate(-90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+        else -> return bitmap
+    }
+    val oriented = Bitmap.createBitmap(
+        bitmap,
+        0,
+        0,
+        bitmap.width,
+        bitmap.height,
+        matrix,
+        true,
+    )
+    if (oriented !== bitmap) bitmap.recycle()
+    return oriented
 }
 
 object PendingVaultSend {

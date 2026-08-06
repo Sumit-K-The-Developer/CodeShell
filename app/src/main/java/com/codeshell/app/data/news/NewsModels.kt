@@ -25,9 +25,6 @@ enum class NewsLanguageFilter(val label: String) {
 
     /** Only Hindi-language articles. */
     HINDI("Hindi"),
-
-    /** Both Hindi and English interleaved (the raw fetch order). */
-    MIX("Mix"),
 }
 
 @Serializable

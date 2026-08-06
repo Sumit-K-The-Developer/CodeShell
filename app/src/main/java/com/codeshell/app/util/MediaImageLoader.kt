@@ -22,13 +22,13 @@ object MediaImageLoader {
                 }
                 .memoryCache {
                     MemoryCache.Builder(context.applicationContext)
-                        .maxSizePercent(0.25)
+                        .maxSizePercent(0.35)
                         .build()
                 }
                 .diskCache {
                     DiskCache.Builder()
                         .directory(context.applicationContext.cacheDir.resolve("image_cache"))
-                        .maxSizePercent(0.02)
+                        .maxSizePercent(0.08)
                         .build()
                 }
                 .build()

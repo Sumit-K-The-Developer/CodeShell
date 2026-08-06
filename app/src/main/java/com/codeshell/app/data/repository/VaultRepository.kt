@@ -5,12 +5,18 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 import com.codeshell.app.data.model.VaultItem
+import com.codeshell.app.util.FALLBACK_MIME
+import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.ByteArrayInputStream
 import java.util.UUID
 
 class VaultRepository(private val context: Context) {
@@ -25,6 +31,7 @@ class VaultRepository(private val context: Context) {
         get() = File(vaultDir, "vault_metadata.json")
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val metadataLock = Any()
 
     suspend fun saveFromUrl(url: String, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null): Result<VaultItem> =
         saveFromUrlWithProgress(url, fileName, mimeType, sourceChatId, sourceMessageId) { _, _ -> }
@@ -223,8 +230,13 @@ class VaultRepository(private val context: Context) {
 
     private fun generateThumbnailStreaming(file: File, mimeType: String, outputFile: File) {
         try {
+            val effectiveMimeType = if (mimeType.contains("/") && mimeType != FALLBACK_MIME) {
+                mimeType
+            } else {
+                mimeTypeForFileName(file.name)
+            }
             when {
-                mimeType.startsWith("image/") -> {
+                effectiveMimeType.startsWith("image/") -> {
                     // Decode directly from file with sampling to avoid OOM on large images
                     val options = android.graphics.BitmapFactory.Options().apply {
                         inJustDecodeBounds = true
@@ -234,13 +246,23 @@ class VaultRepository(private val context: Context) {
                     }
                     val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
                     bitmap?.let {
+                        val oriented = applyExifOrientation(
+                            it,
+                            runCatching {
+                                ExifInterface(file.absolutePath).getAttributeInt(
+                                    ExifInterface.TAG_ORIENTATION,
+                                    ExifInterface.ORIENTATION_NORMAL,
+                                )
+                            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL),
+                        )
                         outputFile.outputStream().use { out ->
-                            it.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                            oriented.compress(Bitmap.CompressFormat.JPEG, 80, out)
                         }
+                        if (oriented !== it) oriented.recycle()
                         it.recycle()
                     }
                 }
-                mimeType.startsWith("video/") -> {
+                effectiveMimeType.startsWith("video/") -> {
                     val retriever = android.media.MediaMetadataRetriever()
                     try {
                         retriever.setDataSource(file.absolutePath)
@@ -272,12 +294,22 @@ class VaultRepository(private val context: Context) {
                         inSampleSize = calculateSampleSize(outWidth, outHeight, 100, 100)
                         inJustDecodeBounds = false
                     }.let { options ->
-                        val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                        bitmap?.let {
-                            outputFile.outputStream().use { out ->
-                                it.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
-                            }
-                            it.recycle()
+                         val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                         bitmap?.let {
+                             val oriented = applyExifOrientation(
+                                 it,
+                                 runCatching {
+                                     ExifInterface(ByteArrayInputStream(bytes)).getAttributeInt(
+                                         ExifInterface.TAG_ORIENTATION,
+                                         ExifInterface.ORIENTATION_NORMAL,
+                                     )
+                                 }.getOrDefault(ExifInterface.ORIENTATION_NORMAL),
+                             )
+                             outputFile.outputStream().use { out ->
+                                 oriented.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                             }
+                             if (oriented !== it) oriented.recycle()
+                             it.recycle()
                         }
                     }
                 }
@@ -366,7 +398,16 @@ class VaultRepository(private val context: Context) {
      * no longer accessible from the vault page. If the gallery insert fails the
      * vault item is left intact.
      */
-    suspend fun moveToGallery(item: VaultItem): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun moveToGallery(item: VaultItem): Result<Uri> =
+        copyItemToGallery(item, deleteSource = true)
+
+    suspend fun copyToGallery(item: VaultItem): Result<Uri> =
+        copyItemToGallery(item, deleteSource = false)
+
+    private suspend fun copyItemToGallery(
+        item: VaultItem,
+        deleteSource: Boolean,
+    ): Result<Uri> = withContext(Dispatchers.IO) {
         var insertedUri: Uri? = null
         try {
             val vaultFile = findEncryptedFile(item)
@@ -383,7 +424,11 @@ class VaultRepository(private val context: Context) {
 
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, item.fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, item.mimeType)
+                put(
+                    MediaStore.MediaColumns.MIME_TYPE,
+                    item.mimeType.takeIf { it.contains("/") && it != "application/octet-stream" }
+                        ?: mimeTypeForFileName(item.fileName),
+                )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
@@ -402,11 +447,13 @@ class VaultRepository(private val context: Context) {
                 resolver.update(insertedUri, values, null, null)
             }
 
-            // Move completed: drop the vault copy so the item is no longer
-            // accessible from the vault (it now lives in the gallery only).
-            vaultFile.delete()
-            File(thumbnailsDir, "${item.id}.jpg").delete()
-            removeFromMetadata(item.id)
+            if (deleteSource) {
+                // Move completed: drop the vault copy so the item is no longer
+                // accessible from the vault (it now lives in the gallery only).
+                vaultFile.delete()
+                File(thumbnailsDir, "${item.id}.jpg").delete()
+                removeFromMetadata(item.id)
+            }
 
             Result.success(insertedUri)
         } catch (e: Throwable) {
@@ -419,9 +466,11 @@ class VaultRepository(private val context: Context) {
 
     suspend fun getAllItems(): List<VaultItem> = withContext(Dispatchers.IO) {
         try {
-            if (!metadataFile.exists()) return@withContext emptyList()
-            val text = metadataFile.readText()
-            json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved }
+            synchronized(metadataLock) {
+                if (!metadataFile.exists()) return@withContext emptyList()
+                val text = metadataFile.readText()
+                json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved }
+            }
         } catch (e: Throwable) {
             // Catch Throwable (incl. Error) so a malformed/corrupt metadata
             // file can never crash loadItems() (which runs right after a save).
@@ -457,14 +506,36 @@ class VaultRepository(private val context: Context) {
         }
     }
 
-    suspend fun deleteItem(item: VaultItem) = withContext(Dispatchers.IO) {
+    suspend fun deleteItem(item: VaultItem): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            findEncryptedFile(item)?.delete()
-            File(thumbnailsDir, "${item.id}.jpg").delete()
+            val vaultFile = findEncryptedFile(item)
+            if (vaultFile?.exists() == true && !vaultFile.delete()) {
+                return@withContext Result.failure(Exception("Could not delete ${item.fileName}"))
+            }
+            val thumbnail = File(thumbnailsDir, "${item.id}.jpg")
+            if (thumbnail.exists() && !thumbnail.delete()) {
+                return@withContext Result.failure(Exception("Could not delete ${item.fileName} thumbnail"))
+            }
             removeFromMetadata(item.id)
+            Result.success(Unit)
         } catch (e: Throwable) {
-            // ignore
+            Result.failure(e)
         }
+    }
+
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setRotate(180f).also { matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_TRANSPOSE -> matrix.setRotate(90f).also { matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> matrix.setRotate(-90f).also { matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
     private fun findEncryptedFile(item: VaultItem): File? {
@@ -497,9 +568,38 @@ class VaultRepository(private val context: Context) {
      * located. Exposed so the UI can hand the path directly to ExoPlayer /
      * BitmapFactory instead of loading the whole file into memory.
      */
-    fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
+fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
 
-    private fun appendToMetadata(item: VaultItem) {
+    /** Resolves the on-disk vault file for an item by its id (e.g. a stored chat wallpaper id). */
+    fun getVaultFileById(id: String): File? =
+        vaultDir.listFiles()?.firstOrNull { it.name.startsWith(id) }
+
+    suspend fun replaceImage(item: VaultItem, sourceUri: Uri): Result<VaultItem> =
+        withContext(Dispatchers.IO) {
+            try {
+                val target = findEncryptedFile(item)
+                    ?: return@withContext Result.failure(Exception("File not found"))
+                val source = context.contentResolver.openInputStream(sourceUri)
+                    ?: return@withContext Result.failure(Exception("Could not read edited image"))
+                val temporary = File(vaultDir, ".${item.id}_edited.tmp")
+                source.use { input -> temporary.outputStream().use { output -> input.copyTo(output) } }
+                target.outputStream().use { output -> temporary.inputStream().use { input -> input.copyTo(output) } }
+                temporary.delete()
+
+                val thumbnail = File(thumbnailsDir, "${item.id}.jpg")
+                runCatching { generateThumbnailStreaming(target, item.mimeType, thumbnail) }
+                val updated = item.copy(
+                    fileSize = target.length(),
+                    contentVersion = System.currentTimeMillis(),
+                )
+                replaceInMetadata(updated)
+                Result.success(updated)
+            } catch (e: Throwable) {
+                Result.failure(e)
+            }
+        }
+
+    private fun appendToMetadata(item: VaultItem) = synchronized(metadataLock) {
         val items = try {
             if (metadataFile.exists()) {
                 json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
@@ -511,7 +611,7 @@ class VaultRepository(private val context: Context) {
         metadataFile.writeText(json.encodeToString(items))
     }
 
-    private fun removeFromMetadata(id: String) {
+    private fun removeFromMetadata(id: String) = synchronized(metadataLock) {
         val items = try {
             if (metadataFile.exists()) {
                 json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
@@ -520,6 +620,17 @@ class VaultRepository(private val context: Context) {
             mutableListOf()
         }
         items.removeAll { it.id == id }
+        metadataFile.writeText(json.encodeToString(items))
+    }
+
+    private fun replaceInMetadata(updated: VaultItem) = synchronized(metadataLock) {
+        val items = if (metadataFile.exists()) {
+            json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
+        } else {
+            mutableListOf()
+        }
+        val index = items.indexOfFirst { it.id == updated.id }
+        if (index >= 0) items[index] = updated
         metadataFile.writeText(json.encodeToString(items))
     }
 }

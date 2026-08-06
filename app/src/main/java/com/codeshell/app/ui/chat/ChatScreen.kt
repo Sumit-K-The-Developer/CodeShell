@@ -93,6 +93,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -278,6 +280,17 @@ fun ChatScreen(
         derivedStateOf { uiState.messages.lastOrNull()?.id }
     }
 
+    val touchActivityModifier = Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.any { it.changedToDown() }) {
+                    activityGeneration++
+                }
+            }
+        }
+    }
+
     TerminalInactivityEffect(
         onNavigateToLearning,
         activityGeneration,
@@ -293,6 +306,7 @@ fun ChatScreen(
             showClearDialog ||
             showBlockDialog ||
             showCameraDialog ||
+            draftToCrop != null ||
             externalMediaFlowActive ||
             listState.isScrollInProgress,
     )
@@ -636,6 +650,7 @@ fun ChatScreen(
     draftToCrop?.let { draft ->
         MediaCropDialog(
             sourceUri = draft.localUri,
+            onUserActivity = { activityGeneration++ },
             onDismiss = { draftToCrop = null },
             onCropped = { croppedUri ->
                 viewModel.replaceDraftMedia(draft.localId, croppedUri)
@@ -677,7 +692,7 @@ fun ChatScreen(
         )
     }
 
-    AdaptiveWidthContainer {
+    AdaptiveWidthContainer(modifier = touchActivityModifier) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = chatColors.background,
@@ -847,6 +862,42 @@ fun ChatScreen(
                 .padding(innerPadding)
         ) {
             OfflineBanner(colors = chatColors)
+
+            Box(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val showWallpaper = uiState.chatWallpaperEnabled &&
+                    when (uiState.wallpaperSource) {
+                        com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT ->
+                            uiState.wallpaperVaultImageUri != null
+                        else ->
+                            !uiState.otherAvatarUrl.isNullOrBlank()
+                    }
+                if (showWallpaper) {
+                    when (uiState.wallpaperSource) {
+                        com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT ->
+                            AsyncImage(
+                                model = uiState.wallpaperVaultImageUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        else ->
+                            AsyncImage(
+                                model = uiState.otherAvatarUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                    }
+                    if (uiState.chatWallpaperOverlay > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = uiState.chatWallpaperOverlay / 100f)),
+                        )
+                    }
+                }
 
             if (uiState.messages.isEmpty() && uiState.pendingUploads.isEmpty() && !uiState.isOtherTyping) {
                 Box(
@@ -1022,6 +1073,7 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
             }
         }
         }

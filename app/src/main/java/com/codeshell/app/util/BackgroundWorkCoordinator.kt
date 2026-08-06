@@ -1,5 +1,6 @@
 package com.codeshell.app.util
 
+import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,9 +18,8 @@ import kotlinx.coroutines.launch
  * Because the scope is tied to the application process (a SupervisorJob on
  * Dispatchers.IO), an in-flight operation keeps running after the user leaves
  * the screen or closes the app, until it either completes or is cancelled
- * manually (each launcher returns a [Job] the caller may cancel). No progress
- * notification is posted: progress is surfaced purely through in-app state the
- * active screen observes.
+ * manually. Transfer launches also acquire a neutral foreground service so the
+ * process is kept alive after the task is removed from recents.
  */
 object BackgroundWorkCoordinator {
 
@@ -31,4 +31,17 @@ object BackgroundWorkCoordinator {
      * lifecycle on purpose).
      */
     fun launch(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)
+
+    /** Launches work while a neutral foreground notification keeps the process alive. */
+    fun launch(context: Context, block: suspend CoroutineScope.() -> Unit): Job {
+        val appContext = context.applicationContext
+        BackgroundTransferForegroundService.acquire(appContext)
+        return scope.launch {
+            try {
+                block()
+            } finally {
+                BackgroundTransferForegroundService.release(appContext)
+            }
+        }
+    }
 }

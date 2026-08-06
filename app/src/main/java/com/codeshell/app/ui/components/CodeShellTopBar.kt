@@ -11,6 +11,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codeshell.app.R
@@ -26,7 +28,6 @@ import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.ui.util.tapOrDoubleTap
 
-private val SecretEntryEnabledColor = Color(0xFFE53935)
 private val SecretEntryDisabledColor = Color(0xFF2E7D4F)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,8 +44,17 @@ fun CodeShellTopBar(
     val isNewsMode = onNewsRefresh != null
     val titleColor = when {
         !showSecretToggle -> EditorDefaultText
-        secretChipDoubleTapEnabled == true -> SecretEntryEnabledColor
+        secretChipDoubleTapEnabled == true -> Color.White
         else -> SecretEntryDisabledColor
+    }
+    val titleStyle = if (showSecretToggle && secretChipDoubleTapEnabled == true) {
+        MaterialTheme.typography.titleLarge.copy(
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp,
+        )
+    } else {
+        MaterialTheme.typography.titleLarge
     }
     val titleModifier = if (showSecretToggle) {
         Modifier.tapOrDoubleTap(
@@ -72,6 +82,7 @@ fun CodeShellTopBar(
             Text(
                 text = stringResource(R.string.app_name),
                 color = titleColor,
+                style = titleStyle,
                 modifier = titleModifier,
             )
         },

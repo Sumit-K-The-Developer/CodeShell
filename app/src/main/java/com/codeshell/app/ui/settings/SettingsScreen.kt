@@ -2,6 +2,8 @@ package com.codeshell.app.ui.settings
 
 import android.Manifest
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -9,24 +11,33 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
@@ -62,6 +73,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -75,6 +87,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.MainActivity
 import com.codeshell.app.R
 import com.codeshell.app.data.model.ChatInterfaceStyle
+import com.codeshell.app.data.model.VaultItem
+import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.ui.chat.rememberChatColors
 import com.codeshell.app.ui.components.CodeShellDialog
 import com.codeshell.app.ui.components.CodeShellDialogAction
@@ -94,11 +108,14 @@ import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
+    chatId: String? = null,
     onNavigateBack: () -> Unit,
     onSignedOut: () -> Unit,
     onInactivityTimeout: () -> Unit = onNavigateBack,
@@ -107,7 +124,7 @@ fun SettingsScreen(
     val app = LocalContext.current.applicationContext as Application
     val context = LocalContext.current
     val activity = context.findActivity() as? MainActivity
-    val viewModel: SettingsViewModel = viewModel { SettingsViewModel(app) }
+    val viewModel: SettingsViewModel = viewModel { SettingsViewModel(app, chatId) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chatColors = rememberChatColors()
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
@@ -129,6 +146,7 @@ fun SettingsScreen(
     var pendingProfilePhotoCropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var profilePhotoWarning by remember { mutableStateOf<String?>(null) }
     var showProfilePhotoViewer by remember { mutableStateOf(false) }
+    var showWallpaperVaultPicker by remember { mutableStateOf(false) }
     var externalProfilePhotoFlowActive by remember { mutableStateOf(false) }
     val setupPinFocusRequester = remember { FocusRequester() }
     val setupConfirmFocusRequester = remember { FocusRequester() }
@@ -241,7 +259,8 @@ fun SettingsScreen(
             OfflineBanner(colors = chatColors)
             Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
@@ -284,6 +303,26 @@ fun SettingsScreen(
                     onRemovePhoto = viewModel::removeProfilePhoto,
                     onAvatarClick = { showProfilePhotoViewer = true },
                     onViewingEnabledChange = viewModel::setProfilePicturesEnabled,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                HorizontalDivider(
+                    color = EditorDefaultText.copy(alpha = 0.1f),
+                    modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
+                )
+                ChatWallpaperSettingsSection(
+                    chatWallpaperEnabled = uiState.chatWallpaperEnabled,
+                    chatId = chatId,
+                    overlay = uiState.chatWallpaperOverlay,
+                    source = uiState.wallpaperSource,
+                    hasVaultWallpaper = !uiState.wallpaperVaultId.isNullOrBlank(),
+                    onChatWallpaperEnabledChange = viewModel::setChatWallpaperEnabled,
+                    onOverlayChange = viewModel::setChatWallpaperOverlay,
+                    onSourceChange = viewModel::setChatWallpaperSource,
+                    onOpenVaultPicker = {
+                        viewModel.loadWallpaperVaultItems()
+                        showWallpaperVaultPicker = true
+                    },
+                    onClearVaultWallpaper = { viewModel.setChatWallpaperVaultItem(null) },
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -395,12 +434,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = EditorDefaultText,
                     )
-                    Text(
-                        text = stringResource(R.string.chat_interface_style_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EditorDefaultText.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-                    )
                     ChatInterfaceStyleDropdown(
                         selectedStyle = uiState.chatInterfaceStyle,
                         onStyleSelected = viewModel::setChatInterfaceStyle,
@@ -427,12 +460,6 @@ fun SettingsScreen(
                             color = EditorDefaultText.copy(alpha = 0.8f),
                         )
                     }
-                    Text(
-                        text = stringResource(R.string.chat_message_font_scale_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EditorDefaultText.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
-                    )
                     Slider(
                         value = uiState.chatMessageFontScale,
                         onValueChange = viewModel::setChatMessageFontScale,
@@ -618,6 +645,20 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showWallpaperVaultPicker) {
+        WallpaperVaultPickerDialog(
+            items = uiState.wallpaperVaultItems,
+            loading = uiState.wallpaperVaultLoading,
+            selectedVaultId = uiState.wallpaperVaultId,
+            onThumbnail = viewModel::getWallpaperThumbnailBytes,
+            onSelect = { item ->
+                showWallpaperVaultPicker = false
+                viewModel.setChatWallpaperVaultItem(item)
+            },
+            onDismiss = { showWallpaperVaultPicker = false },
+        )
     }
 
     if (showDisableAccessCodeDialog) {
@@ -938,12 +979,6 @@ private fun ProfilePictureSettingsSection(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = stringResource(R.string.profile_picture_section_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = EditorDefaultText.copy(alpha = 0.7f),
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1023,6 +1058,282 @@ private fun ProfilePictureSettingsSection(
 }
 
 @Composable
+private fun ChatWallpaperSettingsSection(
+    chatWallpaperEnabled: Boolean,
+    chatId: String?,
+    overlay: Int,
+    source: String,
+    hasVaultWallpaper: Boolean,
+    onChatWallpaperEnabledChange: (Boolean) -> Unit,
+    onOverlayChange: (Int) -> Unit,
+    onSourceChange: (String) -> Unit,
+    onOpenVaultPicker: () -> Unit,
+    onClearVaultWallpaper: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val snappedOverlay = ((overlay + 10) / 20 * 20).coerceIn(0, 100)
+    Column(modifier = modifier.fillMaxWidth()) {
+        SettingsToggleRow(
+            title = stringResource(R.string.chat_wallpaper_enabled),
+            description = stringResource(R.string.chat_wallpaper_enabled_desc),
+            checked = chatWallpaperEnabled,
+            onCheckedChange = onChatWallpaperEnabledChange,
+        )
+        if (chatWallpaperEnabled) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_wallpaper_overlay),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = EditorDefaultText,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = stringResource(R.string.chat_wallpaper_overlay_value, snappedOverlay),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EditorDefaultText.copy(alpha = 0.8f),
+                )
+            }
+            Slider(
+                value = snappedOverlay.toFloat(),
+                onValueChange = { onOverlayChange(it.toInt()) },
+                valueRange = 0f..100f,
+                steps = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (chatId != null) {
+                Text(
+                    text = stringResource(R.string.chat_wallpaper_source),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = EditorDefaultText,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = source == AppPreferences.WALLPAPER_SOURCE_AVATAR,
+                        onClick = { onSourceChange(AppPreferences.WALLPAPER_SOURCE_AVATAR) },
+                        label = { Text(stringResource(R.string.chat_wallpaper_source_avatar)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            selectedLabelColor = EditorDefaultText,
+                            labelColor = EditorDefaultText.copy(alpha = 0.8f),
+                        ),
+                    )
+                    FilterChip(
+                        selected = source == AppPreferences.WALLPAPER_SOURCE_VAULT,
+                        onClick = { onSourceChange(AppPreferences.WALLPAPER_SOURCE_VAULT) },
+                        label = { Text(stringResource(R.string.chat_wallpaper_source_vault)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            selectedLabelColor = EditorDefaultText,
+                            labelColor = EditorDefaultText.copy(alpha = 0.8f),
+                        ),
+                    )
+                }
+                if (source == AppPreferences.WALLPAPER_SOURCE_VAULT) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onOpenVaultPicker) {
+                            Text(stringResource(R.string.chat_wallpaper_choose_vault))
+                        }
+                        if (hasVaultWallpaper) {
+                            TextButton(onClick = onClearVaultWallpaper) {
+                                Text(
+                                    stringResource(R.string.chat_wallpaper_clear_vault),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WallpaperVaultPickerDialog(
+    items: List<VaultItem>,
+    loading: Boolean,
+    selectedVaultId: String?,
+    onThumbnail: suspend (VaultItem) -> Result<ByteArray>,
+    onSelect: (VaultItem) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.8f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(EditorBackground),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_wallpaper_vault_picker_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = EditorDefaultText,
+                )
+                Text(
+                    text = stringResource(R.string.chat_wallpaper_vault_picker_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EditorDefaultText.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                )
+                when {
+                    loading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    items.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.chat_wallpaper_no_vault_images),
+                                color = EditorDefaultText.copy(alpha = 0.6f),
+                            )
+                        }
+                    }
+                    else -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            contentPadding = PaddingValues(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            items(items, key = { it.id }) { item ->
+                                WallpaperVaultThumb(
+                                    item = item,
+                                    onThumbnail = onThumbnail,
+                                    selected = item.id == selectedVaultId,
+                                    onClick = { onSelect(item) },
+                                    modifier = Modifier.aspectRatio(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WallpaperVaultThumb(
+    item: VaultItem,
+    onThumbnail: suspend (VaultItem) -> Result<ByteArray>,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var bitmap by remember(item.id, item.contentVersion) { mutableStateOf<Bitmap?>(null) }
+    var loading by remember(item.id, item.contentVersion) { mutableStateOf(true) }
+
+    LaunchedEffect(item.id, item.contentVersion) {
+        loading = true
+        bitmap = withContext(Dispatchers.IO) {
+            onThumbnail(item).getOrNull()?.let { bytes ->
+                runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+            }
+        }
+        loading = false
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary else EditorDefaultText.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(6.dp),
+            )
+            .clickable(onClick = onClick)
+            .background(EditorDefaultText.copy(alpha = 0.08f)),
+    ) {
+        when {
+            loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            bitmap != null -> {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = item.fileName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = null,
+                        tint = EditorDefaultText.copy(alpha = 0.4f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+        }
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            )
+        }
+    }
+}
+
+@Composable
 private fun SettingsCollapsibleSection(
     title: String,
     expanded: Boolean,
@@ -1050,7 +1361,13 @@ private fun SettingsCollapsibleSection(
             )
         }
         AnimatedVisibility(visible = expanded) {
-            content()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                content()
+            }
         }
     }
 }
@@ -1066,7 +1383,8 @@ private fun SettingsToggleRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 16.dp),
+            .padding(top = 16.dp)
+            .clickable(onClick = { onCheckedChange(!checked) }),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -1074,11 +1392,6 @@ private fun SettingsToggleRow(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 color = EditorDefaultText,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = EditorDefaultText.copy(alpha = 0.7f),
             )
         }
         Switch(

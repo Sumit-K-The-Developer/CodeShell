@@ -1,7 +1,9 @@
 {
-  "version": 2,
+  "version": 3,
   "topics": [
     { "id": "top", "label": "Top Stories", "shortLabel": "Top" },
+    { "id": "education", "label": "Education", "shortLabel": "Edu" },
+    { "id": "politics", "label": "Politics", "shortLabel": "Pol" },
     { "id": "world", "label": "World", "shortLabel": "Wrld" },
     { "id": "business", "label": "Business", "shortLabel": "Biz" },
     { "id": "technology", "label": "Technology", "shortLabel": "Tech" },
@@ -17,6 +19,24 @@
           "title": "Top Stories",
           "body": "Latest breaking news and top stories from around the world.",
           "examples": "Stay informed with the most important news of the day."
+        }
+      ]
+    },
+    "education": {
+      "sections": [
+        {
+          "title": "Education",
+          "body": "Education policy, schools, universities, and learning news.",
+          "examples": "Keep up with developments shaping education."
+        }
+      ]
+    },
+    "politics": {
+      "sections": [
+        {
+          "title": "Politics",
+          "body": "Political developments, public policy, and government news.",
+          "examples": "Follow the decisions and debates shaping public life."
         }
       ]
     },

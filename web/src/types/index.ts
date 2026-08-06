@@ -18,7 +18,9 @@ export interface ChatMessage {
   delivered: boolean;
   read: boolean;
   deleted: boolean;
+  editedAt: Date | null;
   seenBy: Set<string>;
+  hiddenBy: Set<string>;
   expiresAt: Date | null;
   unseenExpiresAt: Date | null;
   reply?: MessageReply;

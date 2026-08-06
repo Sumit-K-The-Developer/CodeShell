@@ -56,7 +56,6 @@ class NewsRepository(
         "sports" to "SPORTS",
         "science" to "SCIENCE",
         "health" to "HEALTH",
-        "politics" to "NATION",
     )
 
     private val categoryToGnews = mapOf(
@@ -74,8 +73,9 @@ class NewsRepository(
 
     /**
      * Fetches news articles.
-     * Priority: GNews API (fast, real descriptions) → RSS (slow, no descriptions) → enrichment.
-     * When [skipCache] is true (refresh), skips cache and fetches fresh.  
+     * India prefers Google News RSS (FEED) and falls back to GNews. Other
+     * regions retain the GNews-first path and fall back to RSS enrichment.
+     * When [skipCache] is true (refresh), skips cache and fetches fresh.
      */
     suspend fun fetchNews(
         categoryId: String,
@@ -90,59 +90,106 @@ class NewsRepository(
             }
         }
 
-        fetchAndCache(categoryId, region)
+        fetchAndCache(
+            categoryId = categoryId,
+            region = region,
+            fetchedAt = System.currentTimeMillis(),
+            forceFresh = skipCache,
+        )
     }
 
     /**
-     * Try GNews first (fast + real descriptions). Fall back to RSS.
+     * India tries RSS first so its visible articles are FEED articles. Other
+     * regions try GNews first (fast + real descriptions) and fall back to RSS.
      * For RSS path, return immediately without blocking on publisher enrichment;
      * enrichment runs in background and saves to cache for next visit.
      *
      * For the India region, both English and Hindi feeds are fetched and
-     * randomly interleaved so the user sees a mixed-language feed.
+     * interleaved so the user sees both languages in the source order.
      */
     private suspend fun fetchAndCache(
         categoryId: String,
         region: NewsRegion,
+        fetchedAt: Long,
+        forceFresh: Boolean,
     ): Result<List<NewsArticle>> {
         val variants = langVariants(region)
+        val isIndia = region == NewsRegion.INDIA
 
-        // --- GNews path (all language variants in parallel) ---
-        val gnewsResults = variants.map { v -> fetchFromGnews(categoryId, region, v.gnewsLang) }
-        val gnewsArticles = gnewsResults
-            .mapNotNull { it.getOrNull() }
-            .flatten()
-            .ifEmpty { null }
+        // India should show RSS results whenever the feed is available. Keep
+        // RSS deferred for international news so GNews remains its fast path.
+        return coroutineScope {
+            val rssDeferred = if (isIndia) {
+                variants.map { v ->
+                    async { fetchFromRss(categoryId, region, v.hl, v.ceid, forceFresh) }
+                }
+            } else {
+                emptyList()
+            }
 
-        if (!gnewsArticles.isNullOrEmpty()) {
-            val merged = interleaveShuffle(gnewsArticles)
-            runCatching { NewsCache.instance.save(categoryId, region, merged) }
-            return Result.success(merged)
+            // Google News RSS carries no per-article images, so GNews is fetched
+            // in parallel to supply image URLs for matching headlines. For India
+            // the RSS articles keep their source order and pick up GNews images;
+            // for every other region GNews remains the primary source below.
+            val gnewsDeferred = variants.map { v ->
+                async { fetchFromGnews(categoryId, region, v.gnewsLang, forceFresh) }
+            }
+
+            val rssResults = rssDeferred.awaitAll()
+            val gnewsResults = gnewsDeferred.awaitAll()
+
+            val rssArticles = rssResults
+                .mapNotNull { it.getOrNull() }
+                .flatten()
+                .ifEmpty { null }
+            val gnewsArticles = gnewsResults
+                .mapNotNull { it.getOrNull() }
+                .flatten()
+
+            if (isIndia && !rssArticles.isNullOrEmpty()) {
+                val withImages = applyGnewsImages(rssArticles, gnewsArticles)
+                val merged = interleaveLanguages(withImages)
+                runCatching { NewsCache.instance.save(categoryId, region, merged, fetchedAt) }
+                launchFresh { enrichAndPersist(categoryId, region, merged, fetchedAt) }
+                return@coroutineScope Result.success(merged)
+            }
+
+            // --- GNews path ---
+            if (gnewsArticles.isNotEmpty()) {
+                val merged = interleaveLanguages(gnewsArticles)
+                runCatching { NewsCache.instance.save(categoryId, region, merged, fetchedAt) }
+                return@coroutineScope Result.success(merged)
+            }
+
+            val fallbackRssResults = if (isIndia) {
+                rssResults
+            } else {
+                variants.map { v ->
+                    fetchFromRss(categoryId, region, v.hl, v.ceid, forceFresh)
+                }
+            }
+            val fallbackRssArticles = fallbackRssResults
+                .mapNotNull { it.getOrNull() }
+                .flatten()
+                .ifEmpty { null }
+
+            if (!fallbackRssArticles.isNullOrEmpty()) {
+                val merged = interleaveLanguages(fallbackRssArticles)
+                runCatching { NewsCache.instance.save(categoryId, region, merged, fetchedAt) }
+                launchFresh { enrichAndPersist(categoryId, region, merged, fetchedAt) }
+                return@coroutineScope Result.success(merged)
+            }
+
+            // --- Both failed ---
+            val firstRssError = fallbackRssResults.firstOrNull()?.exceptionOrNull()
+            val gnewsErrorMessage = "Gnews: " + if (gnewsArticles.isEmpty()) "Failed" else "No articles"
+            Result.failure(
+                IOException(
+                    "RSS: ${firstRssError?.message ?: "No articles"}" +
+                        " | $gnewsErrorMessage",
+                ),
+            )
         }
-
-        // --- RSS path (all language variants in parallel) ---
-        val rssResults = variants.map { v -> fetchFromRss(categoryId, region, v.hl, v.ceid) }
-        val rssArticles = rssResults
-            .mapNotNull { it.getOrNull() }
-            .flatten()
-            .ifEmpty { null }
-
-        if (!rssArticles.isNullOrEmpty()) {
-            val merged = interleaveShuffle(rssArticles)
-            runCatching { NewsCache.instance.save(categoryId, region, merged) }
-            launchFresh { enrichAndPersist(categoryId, region, merged) }
-            return Result.success(merged)
-        }
-
-        // --- Both failed ---
-        val firstRssError = rssResults.firstOrNull()?.exceptionOrNull()
-        val firstGnewsError = gnewsResults.firstOrNull()?.exceptionOrNull()
-        return Result.failure(
-            IOException(
-                "RSS: ${firstRssError?.message ?: "No articles"}" +
-                    " | Gnews: ${firstGnewsError?.message ?: "Failed"}",
-            ),
-        )
     }
 
     /**
@@ -168,16 +215,24 @@ class NewsRepository(
     )
 
     /**
-     * Interleave articles from multiple language lists round-robin, then
-     * apply a light shuffle so the ordering feels random while keeping
-     * both languages well-represented.
+     * Interleave language lists round-robin while preserving each feed's
+     * newest-first order. Shuffling made a refresh appear to return old
+     * articles because an older item could land at the top of the pager.
      */
-    private fun interleaveShuffle(articles: List<NewsArticle>): List<NewsArticle> {
+    private fun interleaveLanguages(articles: List<NewsArticle>): List<NewsArticle> {
         if (articles.size <= 1) return articles
-        // Round-robin merge with a random starting offset per group,
-        // then shuffle within small windows to keep things mixed.
-        val shuffled = articles.shuffled()
-        return shuffled
+        val groups = listOf("en", "hi", null).map { language ->
+            articles.filter { it.language == language }
+        }.filter { it.isNotEmpty() }
+        val result = ArrayList<NewsArticle>(articles.size)
+        var index = 0
+        while (result.size < articles.size) {
+            groups.forEach { group ->
+                group.getOrNull(index)?.let(result::add)
+            }
+            index++
+        }
+        return result
     }
 
     private fun launchFresh(block: suspend () -> Unit) {
@@ -196,10 +251,11 @@ class NewsRepository(
         categoryId: String,
         region: NewsRegion,
         articles: List<NewsArticle>,
+        fetchedAt: Long,
     ) {
         if (articles.isEmpty()) return
         val enriched = enrichArticles(articles)
-        runCatching { NewsCache.instance.save(categoryId, region, enriched) }
+        runCatching { NewsCache.instance.save(categoryId, region, enriched, fetchedAt) }
     }
 
     private fun fetchFromRss(
@@ -207,14 +263,21 @@ class NewsRepository(
         region: NewsRegion,
         hl: String = region.hl,
         ceid: String = region.ceid,
+        forceFresh: Boolean = false,
     ): Result<List<NewsArticle>> {
         return try {
-            val rssUrl = buildRssUrl(categoryId, region, hl, ceid)
+            val rssUrl = buildRssUrl(categoryId, region, hl, ceid, forceFresh)
             val request = Request.Builder()
                 .url(rssUrl)
                 .header("User-Agent", userAgent)
                 .header("Accept", "application/rss+xml, application/xml, text/xml, */*")
                 .header("Accept-Language", hl)
+                .apply {
+                    if (forceFresh) {
+                        header("Cache-Control", "no-cache, no-store")
+                        header("Pragma", "no-cache")
+                    }
+                }
                 .get()
                 .build()
 
@@ -284,21 +347,23 @@ class NewsRepository(
         region: NewsRegion,
         hl: String = region.hl,
         ceid: String = region.ceid,
+        forceFresh: Boolean = false,
     ): String {
         val base = region.rssBaseUrl.trimEnd('/')
         val query = "hl=$hl&gl=${region.gl}&ceid=$ceid"
+        val freshQuery = if (forceFresh) "$query&cacheBust=${System.currentTimeMillis()}" else query
         val normalized = categoryId.lowercase(Locale.US)
 
         if (normalized !in categoryToGoogleTopic) {
             val q = URLEncoder.encode(categoryId, StandardCharsets.UTF_8.name())
-            return "$base/search?q=$q&$query"
+            return "$base/search?q=$q&$freshQuery"
         }
 
         val topic = categoryToGoogleTopic[normalized]
         return if (topic == null) {
-            "$base?$query"
+            "$base?$freshQuery"
         } else {
-            "$base/headlines/section/topic/$topic?$query"
+            "$base/headlines/section/topic/$topic?$freshQuery"
         }
     }
 
@@ -655,6 +720,7 @@ class NewsRepository(
         categoryId: String,
         region: NewsRegion,
         lang: String = "en",
+        forceFresh: Boolean = false,
     ): Result<List<NewsArticle>> {
         return try {
             val apiKey = BuildConfig.GNEWS_API_KEY
@@ -693,6 +759,12 @@ class NewsRepository(
                 .url(urlBuilder.toString())
                 .header("User-Agent", userAgent)
                 .header("Accept", "application/json")
+                .apply {
+                    if (forceFresh) {
+                        header("Cache-Control", "no-cache, no-store")
+                        header("Pragma", "no-cache")
+                    }
+                }
                 .get()
                 .build()
 
@@ -790,6 +862,50 @@ class NewsRepository(
         return parsed.selectFirst("img[src]")?.attr("src")?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Google News RSS has no per-article images, so image URLs are sourced
+     * from the parallel GNews response by matching normalized headlines.
+     * Articles without a confident match keep their (null) image and rely on
+     * the background OpenGraph enrichment instead.
+     */
+    private fun applyGnewsImages(
+        articles: List<NewsArticle>,
+        gnewsArticles: List<NewsArticle>,
+    ): List<NewsArticle> {
+        if (gnewsArticles.isEmpty()) return articles
+
+        val imagesByTitle = HashMap<String, String>()
+        for (g in gnewsArticles) {
+            val image = g.urlToImage?.trim().orEmpty()
+            val key = normalizeForImageMatch(g.title)
+            if (image.isNotEmpty() && key != null && key.length >= IMAGE_MATCH_MIN_TITLE) {
+                imagesByTitle[key] = image
+            }
+        }
+        if (imagesByTitle.isEmpty()) return articles
+
+        return articles.map { article ->
+            val current = article.urlToImage?.trim().orEmpty()
+            if (current.isNotEmpty()) {
+                article
+            } else {
+                val key = normalizeForImageMatch(article.title)
+                val image = key?.let(imagesByTitle::get)
+                if (image != null) article.copy(urlToImage = image) else article
+            }
+        }
+    }
+
+    /** Lowercases and strips punctuation while keeping Unicode letters so Hindi headlines also match. */
+    private fun normalizeForImageMatch(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        return text.lowercase(Locale.US)
+            .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .takeIf { it.isNotEmpty() }
+    }
+
     private fun formatRssDate(pubDate: String): String {
         val patterns = listOf(
             "EEE, dd MMM yyyy HH:mm:ss zzz",
@@ -823,6 +939,10 @@ class NewsRepository(
         // higher bar when there's no image (text must fill the card).
         private const val MIN_WORDS_WITH_IMAGE = 80
         private const val MIN_WORDS_NO_IMAGE = 120
+
+        // Minimum normalized headline length (chars) before a GNews image is
+        // attached to a matching RSS headline, to avoid noisy short matches.
+        private const val IMAGE_MATCH_MIN_TITLE = 12
 
         const val FEED_TAG_RSS = "FEED"
         const val FEED_TAG_GNEWS = "Gnews"

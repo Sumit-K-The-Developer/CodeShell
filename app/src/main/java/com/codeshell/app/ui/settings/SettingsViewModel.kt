@@ -4,15 +4,18 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.codeshell.app.util.BackgroundWorkCoordinator
 import com.codeshell.app.R
 import com.codeshell.app.SharePanelController
 import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.UserProfile
+import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.repository.AccountRepository
 import com.codeshell.app.data.repository.AuthRepository
 import com.codeshell.app.data.repository.UserRepository
 import com.codeshell.app.data.repository.StorageRepository
+import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.util.ChatAccessCodeHasher
 import com.codeshell.app.util.ChatInactivityTimeout
 import com.codeshell.app.util.ChatMessageFontScale
@@ -31,10 +34,12 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     application: Application,
+    private val chatId: String? = null,
     private val authRepository: AuthRepository = AuthRepository(),
     private val userRepository: UserRepository = UserRepository(),
     private val storageRepository: StorageRepository = StorageRepository(),
     private val accountRepository: AccountRepository = AccountRepository(),
+    private val vaultRepository: VaultRepository = VaultRepository(application),
     private val appPreferences: AppPreferences = AppPreferences(application)
 ) : AndroidViewModel(application) {
 
@@ -96,6 +101,31 @@ class SettingsViewModel(
             appPreferences.profilePicturesEnabled.collect { enabled ->
                 _uiState.update { it.copy(profilePicturesEnabled = enabled) }
             }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperEnabled.collect { enabled ->
+                _uiState.update { it.copy(chatWallpaperEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.chatWallpaperOverlay.collect { overlay ->
+                _uiState.update { it.copy(chatWallpaperOverlay = overlay) }
+            }
+        }
+        chatId?.let { currentChat ->
+            viewModelScope.launch {
+                appPreferences.chatWallpaperSource(currentChat).collect { source ->
+                    _uiState.update { it.copy(wallpaperSource = source) }
+                }
+            }
+            viewModelScope.launch {
+                appPreferences.chatWallpaperVaultId(currentChat).collect { vaultId ->
+                    _uiState.update { it.copy(wallpaperVaultId = vaultId) }
+                }
+            }
+        }
+        if (chatId != null) {
+            loadWallpaperVaultItems()
         }
         viewModelScope.launch {
             appPreferences.sharePanelEnabled.collect { enabled ->
@@ -172,6 +202,67 @@ class SettingsViewModel(
         }
     }
 
+    fun setChatWallpaperEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            appPreferences.setChatWallpaperEnabled(enabled)
+        }
+    }
+
+    fun setChatWallpaperOverlay(value: Int) {
+        viewModelScope.launch {
+            appPreferences.setChatWallpaperOverlay(value)
+        }
+    }
+
+    fun setChatWallpaperSource(source: String) {
+        val currentChat = chatId ?: return
+        viewModelScope.launch {
+            appPreferences.setChatWallpaperSource(currentChat, source)
+            if (source != com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT) {
+                // Avatar source: no vault image required.
+                _uiState.update { it.copy(wallpaperSource = source) }
+            }
+        }
+    }
+
+    fun setChatWallpaperVaultItem(item: VaultItem?) {
+        val currentChat = chatId ?: return
+        if (item == null) {
+            viewModelScope.launch {
+                appPreferences.setChatWallpaperVaultId(currentChat, null)
+                appPreferences.setChatWallpaperSource(currentChat, com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_AVATAR)
+            }
+            return
+        }
+        viewModelScope.launch {
+            appPreferences.setChatWallpaperVaultId(currentChat, item.id)
+            appPreferences.setChatWallpaperSource(currentChat, com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT)
+            _uiState.update {
+                it.copy(
+                    wallpaperSource = com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT,
+                    wallpaperVaultId = item.id,
+                    successMessage = getApplication<Application>().getString(
+                        R.string.chat_wallpaper_vault_success,
+                    ),
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    fun loadWallpaperVaultItems() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(wallpaperVaultLoading = true) }
+            val items = vaultRepository.getAllItems()
+                .filter { it.isImage }
+                .sortedByDescending { it.dateSaved }
+            _uiState.update { it.copy(wallpaperVaultItems = items, wallpaperVaultLoading = false) }
+        }
+    }
+
+    suspend fun getWallpaperThumbnailBytes(item: VaultItem): Result<ByteArray> =
+        vaultRepository.getThumbnailBytes(item)
+
     fun setSharePanelEnabled(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setSharePanelEnabled(enabled)
@@ -204,7 +295,7 @@ class SettingsViewModel(
             _uiState.update { it.copy(errorMessage = offlineMessage()) }
             return
         }
-        viewModelScope.launch {
+        BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             _uiState.update { it.copy(isSavingProfilePhoto = true, errorMessage = null, successMessage = null) }
             storageRepository.uploadProfilePhoto(userId, uri)
                 .onSuccess { downloadUrl ->
@@ -466,9 +557,15 @@ data class SettingsUiState(
     val secureTerminalOnly: Boolean = false,
     val closeChatOnInactivity: Boolean = true,
     val chatInactivityTimeoutSeconds: Int = ChatInactivityTimeout.DEFAULT_SECONDS,
-    val newTerminalAlert: Boolean = false,
+    val newTerminalAlert: Boolean = true,
     val profilePicturesEnabled: Boolean = false,
-    val sharePanelEnabled: Boolean = false,
+    val chatWallpaperEnabled: Boolean = true,
+    val chatWallpaperOverlay: Int = com.codeshell.app.data.preferences.AppPreferences.CHAT_WALLPAPER_OVERLAY_DEFAULT,
+    val wallpaperSource: String = com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_AVATAR,
+    val wallpaperVaultId: String? = null,
+    val wallpaperVaultItems: List<VaultItem> = emptyList(),
+    val wallpaperVaultLoading: Boolean = false,
+    val sharePanelEnabled: Boolean = true,
     val chatInterfaceStyle: ChatInterfaceStyle = ChatInterfaceStyle.DEFAULT,
     val chatMessageFontScale: Float = ChatMessageFontScale.DEFAULT,
     val chatAccessCodeEnabled: Boolean = false,

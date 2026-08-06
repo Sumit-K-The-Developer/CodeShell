@@ -1,6 +1,7 @@
 package com.codeshell.app.data.model
 
 import kotlinx.serialization.Serializable
+import com.codeshell.app.util.mimeTypeForFileName
 
 @Serializable
 data class VaultItem(
@@ -9,11 +10,14 @@ data class VaultItem(
     val mimeType: String,
     val dateSaved: Long,
     val fileSize: Long,
+    val contentVersion: Long = 0L,
     val sourceChatId: String? = null,
     val sourceMessageId: String? = null,
 ) {
-    val isVideo: Boolean get() = mimeType.startsWith("video/")
-    val isImage: Boolean get() = mimeType.startsWith("image/")
+    val isVideo: Boolean
+        get() = mimeType.startsWith("video/") || mimeTypeForFileName(fileName).startsWith("video/")
+    val isImage: Boolean
+        get() = mimeType.startsWith("image/") || mimeTypeForFileName(fileName).startsWith("image/")
 
     val extension: String get() {
         val dot = fileName.lastIndexOf('.')

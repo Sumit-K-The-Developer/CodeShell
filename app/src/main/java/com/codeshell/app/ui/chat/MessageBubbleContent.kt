@@ -80,8 +80,11 @@ import com.codeshell.app.data.model.UploadStage
 import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.VideoThumbnailLoader
 import com.codeshell.app.util.formatFileSize
+import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private val UploadProgressGreen = Color(0xFF00E676)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -154,7 +157,16 @@ private fun MessageBody(
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
 ) {
     val colors = theme.colors
-    when (message.type) {
+    val displayType = if (message.type == MessageType.FILE) {
+        when {
+            mimeTypeForFileName(message.fileName).startsWith("image/") -> MessageType.IMAGE
+            mimeTypeForFileName(message.fileName).startsWith("video/") -> MessageType.VIDEO
+            else -> MessageType.FILE
+        }
+    } else {
+        message.type
+    }
+    when (displayType) {
         MessageType.IMAGE -> {
             val url = message.mediaUrl
             Column(modifier = Modifier.widthIn(max = 220.dp)) {
@@ -834,40 +846,43 @@ fun PendingUploadBubble(
                 }
             }
         }
-        IconButton(
-            onClick = onCancel,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(28.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = stringResource(R.string.cancel_upload),
-                tint = Color.White,
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-                    .padding(4.dp)
-                    .size(16.dp)
-            )
-        }
         if (upload.stage == UploadStage.PREPARING || upload.progress < 1f) {
-            if (upload.stage == UploadStage.PREPARING) {
-                CircularProgressIndicator(
-                    strokeWidth = 2.dp,
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (upload.stage == UploadStage.PREPARING) {
+                    CircularProgressIndicator(
+                        color = UploadProgressGreen,
+                        trackColor = UploadProgressGreen.copy(alpha = 0.22f),
+                        strokeWidth = 4.dp,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        progress = { upload.progress.coerceIn(0f, 1f) },
+                        color = UploadProgressGreen,
+                        trackColor = UploadProgressGreen.copy(alpha = 0.22f),
+                        strokeWidth = 4.dp,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                IconButton(
+                    onClick = onCancel,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .size(20.dp)
-                )
-            } else {
-                CircularProgressIndicator(
-                    progress = { upload.progress.coerceIn(0f, 1f) },
-                    strokeWidth = 2.dp,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .size(16.dp)
-                )
+                        .size(29.dp)
+                        .background(Color.Black.copy(alpha = 0.68f), CircleShape),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.cancel_upload),
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
         }
     }

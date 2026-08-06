@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
 object VideoUploadProcessor {
 
     private const val TAG = "VideoUploadProcessor"
-    const val MAX_UPLOAD_BYTES = 50L * 1024 * 1024
+    const val MAX_UPLOAD_BYTES = 100L * 1024 * 1024
 
     data class PreparedVideo(
         val uri: Uri,

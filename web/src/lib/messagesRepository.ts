@@ -94,6 +94,11 @@ function parseSeenBy(raw: unknown): Set<string> {
   return new Set(Object.keys(raw as Record<string, unknown>));
 }
 
+function parseUserIds(raw: unknown): Set<string> {
+  if (!raw || typeof raw !== "object") return new Set();
+  return new Set(Object.keys(raw as Record<string, unknown>));
+}
+
 function parseReply(data: DocumentData): MessageReply | undefined {
   const messageId = data.replyMessageId as string | undefined;
   if (!messageId) return undefined;
@@ -108,6 +113,7 @@ function parseReply(data: DocumentData): MessageReply | undefined {
 function toChatMessage(id: string, data: DocumentData): ChatMessage {
   const timestamp = (data.timestamp as Timestamp | undefined)?.toDate() ?? null;
   const expiresAt = (data.expiresAt as Timestamp | undefined)?.toDate() ?? null;
+  const editedAt = (data.editedAt as Timestamp | undefined)?.toDate() ?? null;
   const unseen =
     (data.unseenExpiresAt as Timestamp | undefined)?.toDate() ??
     (timestamp ? unseenExpiresAt(timestamp) : null);
@@ -123,7 +129,9 @@ function toChatMessage(id: string, data: DocumentData): ChatMessage {
     delivered: Boolean(data.delivered),
     read: Boolean(data.read),
     deleted: Boolean(data.deleted),
+    editedAt,
     seenBy: parseSeenBy(data.seenBy),
+    hiddenBy: parseUserIds(data.hiddenBy),
     expiresAt,
     unseenExpiresAt: unseen,
     reply: parseReply(data),
@@ -132,6 +140,7 @@ function toChatMessage(id: string, data: DocumentData): ChatMessage {
 
 export function observeMessages(
   chatId: string,
+  currentUserId: string,
   onData: (messages: ChatMessage[]) => void,
   onError: (error: Error) => void
 ): () => void {
@@ -145,6 +154,7 @@ export function observeMessages(
     (snapshot) => {
       const messages = snapshot.docs
         .map((docSnap) => toChatMessage(docSnap.id, docSnap.data()))
+        .filter((msg) => !msg.hiddenBy.has(currentUserId))
         .filter((msg) => !shouldHideFromClient(msg.expiresAt, msg.unseenExpiresAt, msg.read));
       onData(messages);
     },
@@ -156,7 +166,8 @@ export async function sendTextMessage(
   chatId: string,
   senderId: string,
   recipientId: string,
-  text: string
+  text: string,
+  reply?: MessageReply
 ): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Empty output");
@@ -173,6 +184,14 @@ export async function sendTextMessage(
     delivered: false,
     read: false,
     deleted: false,
+    ...(reply
+      ? {
+          replyMessageId: reply.messageId,
+          replySenderId: reply.senderId,
+          replyType: reply.type,
+          replyPreview: reply.preview,
+        }
+      : {}),
   };
 
   const batch = writeBatch(db);
@@ -183,6 +202,40 @@ export async function sendTextMessage(
     [`unreadCount_${recipientId}`]: increment(1),
   });
   await batch.commit();
+}
+
+export async function editTextMessage(
+  chatId: string,
+  messageId: string,
+  text: string
+): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Empty output");
+
+  await updateDoc(doc(db, COLLECTION_CHATS, chatId, COLLECTION_MESSAGES, messageId), {
+    content: trimmed,
+    editedAt: Timestamp.now(),
+  });
+}
+
+export async function deleteMessageForEveryone(
+  chatId: string,
+  messageId: string
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTION_CHATS, chatId, COLLECTION_MESSAGES, messageId), {
+    deleted: true,
+    content: "",
+  });
+}
+
+export async function deleteMessageForMe(
+  chatId: string,
+  messageId: string,
+  userId: string
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTION_CHATS, chatId, COLLECTION_MESSAGES, messageId), {
+    [`hiddenBy.${userId}`]: Timestamp.now(),
+  });
 }
 
 export async function resetUnreadCount(chatId: string, userId: string): Promise<void> {

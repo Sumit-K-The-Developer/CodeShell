@@ -7,7 +7,7 @@ object Routes {
     const val HOME = "home"
     const val CHAT = "chat/{chatId}"
     const val MEDIA = "media/{type}"
-    const val SETTINGS = "settings"
+    const val SETTINGS = "settings?chatId={chatId}"
     const val AI_TUTOR = "ai_tutor/{topicId}?entrySource={entrySource}&welcomeDigits={welcomeDigits}&topicLabel={topicLabel}"
     const val VAULT = "vault"
 
@@ -15,6 +15,8 @@ object Routes {
     fun media(type: String) = "media/$type"
     fun home() = "home"
     fun vault() = "vault"
+    fun settings(chatId: String? = null): String =
+        if (chatId.isNullOrBlank()) "settings" else "settings?chatId=${java.net.URLEncoder.encode(chatId, Charsets.UTF_8.name())}"
     fun aiTutor(
         topicId: String,
         topicLabel: String,

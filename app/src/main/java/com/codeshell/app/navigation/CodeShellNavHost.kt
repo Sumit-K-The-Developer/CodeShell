@@ -140,7 +140,7 @@ fun CodeShellNavHost(
                     navController.navigate(Routes.chat(chatId))
                 },
                 onOpenSettings = {
-                    navController.navigate(Routes.SETTINGS)
+                    navController.navigate(Routes.settings())
                 },
                 onOpenAiTutor = { topicId, topicLabel, welcomeDigits, entrySource ->
                     navController.navigate(
@@ -173,7 +173,7 @@ fun CodeShellNavHost(
                     navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
                 },
                 onOpenSettings = {
-                    navController.navigate(Routes.SETTINGS)
+                    navController.navigate(Routes.settings(chatId))
                 },
                 onOpenMedia = { type, url, fileName, messageId ->
                     navController.currentBackStackEntry?.savedStateHandle?.apply {
@@ -249,8 +249,20 @@ fun CodeShellNavHost(
             )
         }
 
-        composable(Routes.SETTINGS) {
+        composable(
+            route = Routes.SETTINGS,
+            arguments = listOf(
+                navArgument("chatId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
+            val settingsChatId = backStackEntry.arguments?.getString("chatId")
+                ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
             SettingsScreen(
+                chatId = settingsChatId,
                 onNavigateBack = { navController.popBackStack() },
                 onSignedOut = navigateToLogin,
                 onInactivityTimeout = navigateToLearning,
@@ -263,6 +275,7 @@ fun CodeShellNavHost(
         composable(Routes.VAULT) {
             VaultScreen(
                 onNavigateBack = { navController.popBackStack() },
+                onInactivityTimeout = navigateToLearning,
                 onOpenChat = { chatId ->
                     navController.navigate(Routes.chat(chatId))
                 },

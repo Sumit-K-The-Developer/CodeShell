@@ -119,8 +119,15 @@ class NewsViewModel(
     }
 
     /**
-     * Poll the cache after enrichment silently (no green line).
-     * The green progress should disappear as soon as articles are refreshed.
+     * Poll the cache silently (no green line) until background enrichment has
+     * pushed its results back so the CURRENT screen picks up OG images — not
+     * just the next app open. Enrichment (redirect decode + OG scrape for up
+     * to ENRICH_LIMIT articles) can take 15s+ on slow networks, far longer than
+     * a single delay, so a one-shot poll routinely misses the enriched save.
+     *
+     * Poll on a short interval, pushing any changed list into state, and stop
+     * once the cached list has actually changed and then stayed identical
+     * across a couple of reads. Cancelled by a newer fetch via [gen].
      */
     private fun scheduleEnrichmentRefresh(
         categoryId: String,
@@ -128,17 +135,33 @@ class NewsViewModel(
         gen: Int,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            delay(ENRICHMENT_POLL_DELAY_MS)
-            if (gen != fetchGeneration.get()) return@launch
-            val cached = runCatching { NewsCache.instance.loadAll(categoryId, region) }
-                .getOrNull()
-            if (cached.isNullOrEmpty()) return@launch
-            if (gen != fetchGeneration.get()) return@launch
-            _uiState.update {
-                it.copy(
-                    isRefreshing = false,
-                    articles = cached,
+            var lastCached: List<NewsArticle>? = null
+            var everChanged = false
+            var unchangedPolls = 0
+            for (poll in 0 until ENRICHMENT_MAX_POLLS) {
+                delay(
+                    if (poll == 0) ENRICHMENT_FIRST_POLL_DELAY_MS
+                    else ENRICHMENT_POLL_INTERVAL_MS,
                 )
+                if (gen != fetchGeneration.get()) return@launch
+                val cached = runCatching { NewsCache.instance.loadAll(categoryId, region) }
+                    .getOrNull()
+                if (cached.isNullOrEmpty()) return@launch
+                if (gen != fetchGeneration.get()) return@launch
+
+                _uiState.update {
+                    if (it.articles == cached) it
+                    else it.copy(isRefreshing = false, articles = cached)
+                }
+
+                if (lastCached != null && cached != lastCached) everChanged = true
+                unchangedPolls = if (cached == lastCached) unchangedPolls + 1 else 0
+                lastCached = cached
+
+                // Only declare the pass done once its save has been observed and
+                // the list has stopped changing. Otherwise a slow enrichment is
+                // cut off during its pre-change phase.
+                if (everChanged && unchangedPolls >= ENRICHMENT_STABLE_POLLS) return@launch
             }
         }
     }
@@ -190,6 +213,12 @@ class NewsViewModel(
     }
 
     companion object {
-        private const val ENRICHMENT_POLL_DELAY_MS = 12_000L
+        // Enrichment (redirect decode + OG scrape) is launched on a background
+        // dispatcher and saves to cache when done. Poll for it on a short
+        // interval — a single 12s delay was too short for slow India networks.
+        private const val ENRICHMENT_FIRST_POLL_DELAY_MS = 6_000L
+        private const val ENRICHMENT_POLL_INTERVAL_MS = 4_000L
+        private const val ENRICHMENT_MAX_POLLS = 10
+        private const val ENRICHMENT_STABLE_POLLS = 2
     }
 }

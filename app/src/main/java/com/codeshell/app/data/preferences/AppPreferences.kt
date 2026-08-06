@@ -42,15 +42,23 @@ class AppPreferences(private val context: Context) {
     }
 
     val newTerminalAlert: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[NEW_TERMINAL_ALERT] ?: false
+        prefs[NEW_TERMINAL_ALERT] ?: true
     }
 
     val profilePicturesEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[PROFILE_PICTURES_ENABLED] ?: false
     }
 
+    val chatWallpaperEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[CHAT_WALLPAPER_ENABLED] ?: true
+    }
+
+    val chatWallpaperOverlay: Flow<Int> = context.dataStore.data.map { prefs ->
+        ClampOverlay(prefs[CHAT_WALLPAPER_OVERLAY] ?: CHAT_WALLPAPER_OVERLAY_DEFAULT)
+    }
+
     val sharePanelEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[SHARE_PANEL_ENABLED] ?: false
+        prefs[SHARE_PANEL_ENABLED] ?: true
     }
 
     val chatInterfaceStyle: Flow<ChatInterfaceStyle> = context.dataStore.data.map { prefs ->
@@ -110,6 +118,48 @@ class AppPreferences(private val context: Context) {
     suspend fun setProfilePicturesEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[PROFILE_PICTURES_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setChatWallpaperEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[CHAT_WALLPAPER_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setChatWallpaperOverlay(value: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[CHAT_WALLPAPER_OVERLAY] = ClampOverlay(value)
+        }
+    }
+
+    fun chatWallpaperSource(chatId: String): Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[wallpaperSourceKey(chatId)] ?: WALLPAPER_SOURCE_AVATAR
+    }
+
+    suspend fun setChatWallpaperSource(chatId: String, source: String) {
+        val clamped = if (source == WALLPAPER_SOURCE_AVATAR || source == WALLPAPER_SOURCE_VAULT) {
+            source
+        } else {
+            WALLPAPER_SOURCE_AVATAR
+        }
+        context.dataStore.edit { prefs ->
+            prefs[wallpaperSourceKey(chatId)] = clamped
+        }
+    }
+
+    fun chatWallpaperVaultId(chatId: String): Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[wallpaperVaultKey(chatId)]
+    }
+
+    suspend fun setChatWallpaperVaultId(chatId: String, vaultId: String?) {
+        val key = wallpaperVaultKey(chatId)
+        context.dataStore.edit { prefs ->
+            if (vaultId.isNullOrBlank()) {
+                prefs.remove(key)
+            } else {
+                prefs[key] = vaultId
+            }
         }
     }
 
@@ -226,8 +276,21 @@ class AppPreferences(private val context: Context) {
 
     private fun chatDraftKey(chatId: String) = stringPreferencesKey("chat_draft_$chatId")
 
+    private fun wallpaperSourceKey(chatId: String) = stringPreferencesKey("chat_wallpaper_source_$chatId")
+
+    private fun wallpaperVaultKey(chatId: String) = stringPreferencesKey("chat_wallpaper_vault_$chatId")
+
     companion object {
         const val DEFAULT_DIALER_CODE = "7777"
+
+        const val WALLPAPER_SOURCE_AVATAR = "avatar"
+        const val WALLPAPER_SOURCE_VAULT = "vault"
+        const val CHAT_WALLPAPER_OVERLAY_DEFAULT = 40
+        const val CHAT_WALLPAPER_OVERLAY_MIN = 0
+        const val CHAT_WALLPAPER_OVERLAY_MAX = 100
+
+        private fun ClampOverlay(value: Int): Int =
+            value.coerceIn(CHAT_WALLPAPER_OVERLAY_MIN, CHAT_WALLPAPER_OVERLAY_MAX)
 
         private val HIDE_ON_HOME_PRESS = booleanPreferencesKey("hide_on_home_press")
         private val TERMINATE_ON_LOCK = booleanPreferencesKey("terminate_on_lock")
@@ -235,6 +298,8 @@ class AppPreferences(private val context: Context) {
         private val CHAT_INACTIVITY_TIMEOUT_SECONDS = intPreferencesKey("chat_inactivity_timeout_seconds")
         private val NEW_TERMINAL_ALERT = booleanPreferencesKey("new_terminal_alert")
         private val PROFILE_PICTURES_ENABLED = booleanPreferencesKey("profile_pictures_enabled")
+        private val CHAT_WALLPAPER_ENABLED = booleanPreferencesKey("chat_wallpaper_enabled")
+        private val CHAT_WALLPAPER_OVERLAY = intPreferencesKey("chat_wallpaper_overlay")
         private val SHARE_PANEL_ENABLED = booleanPreferencesKey("share_panel_enabled")
         private val CHAT_INTERFACE_STYLE = stringPreferencesKey("chat_interface_style")
         private val SECRET_DIALER_CODE = stringPreferencesKey("secret_dialer_code")

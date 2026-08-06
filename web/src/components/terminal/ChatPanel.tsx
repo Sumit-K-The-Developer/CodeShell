@@ -4,6 +4,9 @@ import { useTerminalPanel } from "@/context/TerminalPanelContext";
 import { usePanelInactivityClose } from "@/hooks/usePanelInactivityClose";
 import { getParticipantIds } from "@/lib/chatRepository";
 import {
+  deleteMessageForEveryone,
+  deleteMessageForMe,
+  editTextMessage,
   getUsername,
   markSeenBy,
   observeMessages,
@@ -14,7 +17,7 @@ import {
 } from "@/lib/messagesRepository";
 import { formatChatTimestamp } from "@/lib/format";
 import { isBelowPolicyWindow } from "@/lib/messageExpiry";
-import { displayText, mediaUrl, type ChatMessage } from "@/types";
+import { displayText, mediaUrl, type ChatMessage, type MessageReply } from "@/types";
 import { PanelFullscreenToggle } from "@/components/terminal/PanelFullscreenToggle";
 
 interface ChatPanelProps {
@@ -32,12 +35,16 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [tagTarget, setTagTarget] = useState<ChatMessage | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
   const needsInitialScroll = useRef(true);
   const lastMessageCount = useRef(0);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const markedSeen = useRef(new Set<string>());
   const markedExpiryBackfill = useRef(new Set<string>());
 
@@ -73,6 +80,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
     if (!chatId) return;
     return observeMessages(
       chatId,
+      userId,
       (list) => setMessages(list),
       () => setMessages([])
     );
@@ -160,18 +168,74 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
 
   async function handleSend(event?: FormEvent) {
     event?.preventDefault();
-    if (!userId || !otherUserId || !chatId || !inputText.trim() || isSending) return;
+    if (!userId || !chatId || !inputText.trim() || isSending) return;
+    if (!editingMessageId && !otherUserId) return;
 
     setIsSending(true);
     setError(null);
     try {
-      await sendTextMessage(chatId, userId, otherUserId, inputText);
+      if (editingMessageId) {
+        await editTextMessage(chatId, editingMessageId, inputText);
+      } else {
+        const reply: MessageReply | undefined = tagTarget
+          ? {
+              messageId: tagTarget.id,
+              senderId: tagTarget.senderId,
+              type: tagTarget.type,
+              preview: displayText(tagTarget),
+            }
+          : undefined;
+        await sendTextMessage(chatId, userId, otherUserId!, inputText, reply);
+      }
       setInputText("");
+      setTagTarget(null);
+      setEditingMessageId(null);
       await setTyping(userId, chatId, false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
     } finally {
       setIsSending(false);
+    }
+  }
+
+  function startTagging(message: ChatMessage) {
+    if (message.deleted) return;
+    setEditingMessageId(null);
+    setTagTarget(message);
+    setOpenMenuId(null);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function startEditing(message: ChatMessage) {
+    if (!canEditMessage(message, userId)) return;
+    setTagTarget(null);
+    setEditingMessageId(message.id);
+    setInputText(message.content);
+    setOpenMenuId(null);
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  }
+
+  async function removeForEveryone(message: ChatMessage) {
+    if (message.senderId !== userId || message.deleted) return;
+    if (!window.confirm("Delete this message for everyone?")) return;
+    setOpenMenuId(null);
+    try {
+      await deleteMessageForEveryone(chatId, message.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete message");
+    }
+  }
+
+  async function removeForMe(message: ChatMessage) {
+    if (!userId) return;
+    setOpenMenuId(null);
+    try {
+      await deleteMessageForMe(chatId, message.id, userId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete message");
     }
   }
 
@@ -240,8 +304,19 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
                 ) : (
                   <span>{displayText(msg)}</span>
                 )}
+                <MessageActions
+                  message={msg}
+                  userId={userId}
+                  open={openMenuId === msg.id}
+                  onToggle={() => setOpenMenuId((current) => current === msg.id ? null : msg.id)}
+                  onTag={() => startTagging(msg)}
+                  onEdit={() => startEditing(msg)}
+                  onDeleteForEveryone={() => void removeForEveryone(msg)}
+                  onDeleteForMe={() => void removeForMe(msg)}
+                />
                 <div className="bubble-meta">
                   {formatChatTimestamp(msg.timestamp)}
+                  {msg.editedAt && <span className="message-edited"> · edited</span>}
                   {receipt(msg)}
                 </div>
               </div>
@@ -254,8 +329,30 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
 
       {error && <p className="error-text" style={{ padding: "0 16px" }}>{error}</p>}
 
+      {(tagTarget || editingMessageId) && (
+        <div className="message-compose-context">
+          <span>
+            {editingMessageId
+              ? "Editing message"
+              : `Tagging: ${displayText(tagTarget!)}`}
+          </span>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => {
+              setTagTarget(null);
+              setEditingMessageId(null);
+              setInputText("");
+            }}
+            aria-label="Cancel"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <form className="chat-input-bar" onSubmit={handleSend}>
         <textarea
+          ref={inputRef}
           rows={1}
           placeholder="Type output…"
           value={inputText}
@@ -268,9 +365,78 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
           }}
         />
         <button className="send-btn" type="submit" disabled={isSending || !inputText.trim()}>
-          Send
+          {editingMessageId ? "Save" : "Send"}
         </button>
       </form>
+    </div>
+  );
+}
+
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+function canEditMessage(message: ChatMessage, userId: string): boolean {
+  if (message.senderId !== userId || message.type !== "text" || message.deleted) return false;
+  if (!message.timestamp) return false;
+  const elapsed = Date.now() - message.timestamp.getTime();
+  return elapsed >= 0 && elapsed <= EDIT_WINDOW_MS;
+}
+
+interface MessageActionsProps {
+  message: ChatMessage;
+  userId: string;
+  open: boolean;
+  onToggle: () => void;
+  onTag: () => void;
+  onEdit: () => void;
+  onDeleteForEveryone: () => void;
+  onDeleteForMe: () => void;
+}
+
+function MessageActions({
+  message,
+  userId,
+  open,
+  onToggle,
+  onTag,
+  onEdit,
+  onDeleteForEveryone,
+  onDeleteForMe,
+}: MessageActionsProps) {
+  const mine = message.senderId === userId;
+  const canEdit = canEditMessage(message, userId);
+  const canDeleteForEveryone = mine && !message.deleted;
+
+  return (
+    <div className={`message-actions${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="message-actions-trigger"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        aria-label="Message actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        ⋮
+      </button>
+      <div className="message-menu" role="menu">
+        {!message.deleted && (
+          <button type="button" role="menuitem" onClick={onTag}>Tag</button>
+        )}
+        {canEdit && (
+          <button type="button" role="menuitem" onClick={onEdit}>Edit</button>
+        )}
+        {canDeleteForEveryone && (
+          <button type="button" role="menuitem" onClick={onDeleteForEveryone}>
+            Delete for everyone
+          </button>
+        )}
+        <button type="button" role="menuitem" onClick={onDeleteForMe}>
+          Delete for me
+        </button>
+      </div>
     </div>
   );
 }

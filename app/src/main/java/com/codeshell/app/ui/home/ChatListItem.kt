@@ -9,7 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -57,6 +58,7 @@ import com.codeshell.app.ui.chat.ChatThemeColors
 import com.codeshell.app.ui.util.clickableWithHorizontalSwipe
 import com.codeshell.app.util.UsernameFormatter
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 @Composable
 fun ChatListItem(
@@ -89,8 +91,17 @@ fun ChatListItem(
     }
     val tileShape = RoundedCornerShape(10.dp)
     val showProfilePicture = profilePicturesEnabled && !chat.otherAvatarUrl.isNullOrBlank()
-    var bottomBarDragDistance by remember { mutableFloatStateOf(0f) }
-    var bottomBarSize by  remember { mutableStateOf(IntSize.Zero) }
+    val context = LocalContext.current
+    val avatarRequest = remember(chat.otherAvatarUrl) {
+        chat.otherAvatarUrl?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .memoryCacheKey("conversation-avatar:$url")
+                .diskCacheKey("conversation-avatar:$url")
+                .crossfade(false)
+                .build()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -121,7 +132,7 @@ fun ChatListItem(
     ) {
         if (showProfilePicture) {
             AsyncImage(
-                model = chat.otherAvatarUrl,
+                model = avatarRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -131,25 +142,12 @@ fun ChatListItem(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .height(34.dp)
-                    .onSizeChanged { bottomBarSize = it }
                     .background(colors.topBar.copy(alpha = 0.9f))
                     .then(
                         if (!selectionMode) {
-                            Modifier.pointerInput(bottomBarSize) {
-                                detectHorizontalDragGestures(
-                                    onDragStart = { bottomBarDragDistance = 0f },
-                                    onHorizontalDrag = { change, amount ->
-                                        change.consume()
-                                        bottomBarDragDistance += amount
-                                    },
-                                    onDragEnd = {
-                                        val requiredSwipe = bottomBarSize.width * 0.70f
-                                        if (bottomBarSize.width > 0 && bottomBarDragDistance >= requiredSwipe) {
-                                            onViewProfilePhoto()
-                                        }
-                                        bottomBarDragDistance = 0f
-                                    },
-                                    onDragCancel = { bottomBarDragDistance = 0f },
+                            Modifier.pointerInput(onViewProfilePhoto) {
+                                detectTapGestures(
+                                    onDoubleTap = { onViewProfilePhoto() },
                                 )
                             }
                         } else {
