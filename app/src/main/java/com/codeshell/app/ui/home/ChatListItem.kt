@@ -115,7 +115,7 @@ fun ChatListItem(
             )
             .border(
                 width = if (selected) 2.dp else 1.dp,
-                color = if (selected) colors.accent else colors.mutedText.copy(alpha = 0.22f),
+                color = if (selected) colors.tileBorder else colors.tileBorder.copy(alpha = 0.22f),
                 shape = tileShape,
             )
             .then(
@@ -175,14 +175,14 @@ fun ChatListItem(
             ) {
                 Text(
                     text = "[>_]",
-                    color = colors.mutedText,
+                    color = colors.text,
                     fontSize = 16.sp,
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
                     text = "CODESHELL",
-                    color = colors.mutedText.copy(alpha = 0.85f),
+                    color = colors.text.copy(alpha = 0.85f),
                     fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 1.sp,
@@ -205,7 +205,7 @@ fun ChatListItem(
                     .align(Alignment.TopEnd)
                     .padding(10.dp)
                     .size(8.dp)
-                    .background(Color.White, CircleShape),
+                    .background(colors.accent, CircleShape),
             )
         }
 

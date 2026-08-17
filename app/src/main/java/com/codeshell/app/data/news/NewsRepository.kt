@@ -98,6 +98,36 @@ class NewsRepository(
         )
     }
 
+    /** Fetch readable publisher text for an article-scoped AI request. */
+    suspend fun fetchArticleContent(url: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val pageUrl = if (isGoogleNewsArticleUrl(url)) decodeGoogleNewsUrl(url) ?: url else url
+            val request = Request.Builder()
+                .url(pageUrl)
+                .header("User-Agent", userAgent)
+                .header("Accept", "text/html,application/xhtml+xml")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(IOException("Publisher page HTTP ${response.code}"))
+                }
+                val html = response.body?.string().orEmpty()
+                if (html.isBlank()) return@withContext Result.failure(IOException("Publisher page was empty"))
+                val document = Jsoup.parse(html, pageUrl)
+                val text = extractArticleParagraphs(document, targetWords = 120)
+                    ?: document.select("article, [itemprop=articleBody], main")
+                        .firstOrNull()
+                        ?.text()
+                        ?.takeIf { it.isNotBlank() }
+                text?.take(MAX_BODY_CHARS)?.let { Result.success(it) }
+                    ?: Result.failure(IOException("Publisher article text unavailable"))
+            }
+        } catch (error: Exception) {
+            Result.failure(IOException("Could not fetch publisher article", error))
+        }
+    }
+
     /**
      * India tries RSS first so its visible articles are FEED articles. Other
      * regions try GNews first (fast + real descriptions) and fall back to RSS.

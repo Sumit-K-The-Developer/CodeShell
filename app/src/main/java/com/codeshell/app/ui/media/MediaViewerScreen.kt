@@ -61,6 +61,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,6 +89,7 @@ import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.MediaPreloadCache
 import com.codeshell.app.util.formatFileSize
 import com.codeshell.app.util.mimeTypeForFileName
+import com.codeshell.app.ui.util.TerminalInactivityEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -105,6 +108,7 @@ fun MediaViewerScreen(
     fileName: String?,
     chatId: String? = null,
     messageId: String? = null,
+    onNavigateToLearning: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val type = MessageType.from(mediaType)
@@ -113,6 +117,18 @@ fun MediaViewerScreen(
     val app = context.applicationContext as android.app.Application
     val vaultViewModel: VaultViewModel = viewModel(
         factory = AndroidViewModelFactory(app)
+    )
+    var showChrome by remember { mutableStateOf(false) }
+    var activityGeneration by remember { mutableIntStateOf(0) }
+
+    // Video playback is continuous activity even without touch input, so it
+    // intentionally remains exempt. Photos and other viewers still use the
+    // normal inactivity timeout and reset it when the user touches the screen.
+    TerminalInactivityEffect(
+        onNavigateToLearning,
+        activityGeneration,
+        showChrome,
+        enabled = type != MessageType.VIDEO,
     )
 
     // Observe the persistent save tracker (updated by the background vault save)
@@ -153,83 +169,33 @@ fun MediaViewerScreen(
 
     Scaffold(
         containerColor = EditorBackground,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (type) {
-                            MessageType.IMAGE -> stringResource(R.string.image_output)
-                            MessageType.VIDEO -> stringResource(R.string.video_output)
-                            MessageType.AUDIO -> stringResource(R.string.voice_output)
-                            else -> stringResource(R.string.file_attachment)
-                        }
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back)
-                        )
-                    }
-                },
-                actions = {
-                    if (mediaUrl.isNotBlank()) {
-                        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                            when (val state = saveState) {
-                                is VaultSaveState.Saving -> {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                }
-                                is VaultSaveState.Success -> {
-                                    // Show a brief success indicator
-                                    LaunchedEffect(state) {
-                                        delay(1500)
-                                        VaultSaveTracker.reset()
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = stringResource(R.string.saved_to_vault),
-                                        tint = androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                                    )
-                                }
-                                is VaultSaveState.Error -> {
-                                    LaunchedEffect(state) {
-                                        delay(2000)
-                                        VaultSaveTracker.reset()
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = stringResource(R.string.save_failed),
-                                        tint = androidx.compose.ui.graphics.Color(0xFFF44336)
-                                    )
-                                }
-                                else -> {
-                                    IconButton(onClick = { saveMedia() }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Save,
-                                            contentDescription = stringResource(R.string.save_to_vault)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TopBarBackground,
-                    titleContentColor = EditorDefaultText,
-                    navigationIconContentColor = EditorDefaultText
-                )
-            )
-        }
-    ) { innerPadding ->
-        Box(
+        topBar = {}
+    ) { _ ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        var wasPressed = false
+                        var downPosition = Offset.Zero
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial)
+                                .changes
+                                .firstOrNull()
+                                ?: continue
+                            if (change.pressed && !wasPressed) {
+                                downPosition = change.position
+                                activityGeneration++
+                            } else if (!change.pressed && wasPressed) {
+                                if ((change.position - downPosition).getDistance() < 24f) {
+                                    showChrome = !showChrome
+                                }
+                            }
+                            wasPressed = change.pressed
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             if (mediaUrl.isBlank()) {
@@ -282,7 +248,83 @@ fun MediaViewerScreen(
                 )
             }
         }
+
+        if (showChrome) {
+            TopAppBar(
+                modifier = Modifier.align(Alignment.TopCenter),
+                title = {
+                    Text(
+                        text = when (type) {
+                            MessageType.IMAGE -> stringResource(R.string.image_output)
+                            MessageType.VIDEO -> stringResource(R.string.video_output)
+                            MessageType.AUDIO -> stringResource(R.string.voice_output)
+                            else -> stringResource(R.string.file_attachment)
+                        }
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back)
+                        )
+                    }
+                },
+                actions = {
+                    if (mediaUrl.isNotBlank()) {
+                        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                            when (val state = saveState) {
+                                is VaultSaveState.Saving -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                                is VaultSaveState.Success -> {
+                                    LaunchedEffect(state) {
+                                        delay(1500)
+                                        VaultSaveTracker.reset()
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = stringResource(R.string.saved_to_vault),
+                                        tint = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                    )
+                                }
+                                is VaultSaveState.Error -> {
+                                    LaunchedEffect(state) {
+                                        delay(2000)
+                                        VaultSaveTracker.reset()
+                                    }
+                                    IconButton(onClick = { saveMedia() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Save,
+                                            contentDescription = "Retry save",
+                                            tint = androidx.compose.ui.graphics.Color(0xFFF44336)
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    IconButton(onClick = { saveMedia() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Save,
+                                            contentDescription = stringResource(R.string.save_to_vault)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TopBarBackground.copy(alpha = 0.82f),
+                    titleContentColor = EditorDefaultText,
+                    navigationIconContentColor = EditorDefaultText
+                )
+            )
+        }
     }
+}
 }
 
 @Composable
@@ -315,6 +357,9 @@ private fun ZoomableImage(url: String, imageLoader: coil.ImageLoader) {
                     CircularProgressIndicator(modifier = Modifier.size(32.dp))
                 }
             }
+            is AsyncImagePainter.State.Error -> {
+                Text(stringResource(R.string.media_unavailable), color = EditorDefaultText)
+            }
             else -> SubcomposeAsyncImageContent()
         }
     }
@@ -325,6 +370,7 @@ private fun ZoomableImage(url: String, imageLoader: coil.ImageLoader) {
 private fun VideoPlayer(url: String) {
     val context = LocalContext.current
     var isLoading by remember(url) { mutableStateOf(true) }
+    var failed by remember(url) { mutableStateOf(false) }
     val player = remember(url) {
         MediaPreloadCache.buildPlayer(context, url).apply {
             prepare()
@@ -334,6 +380,11 @@ private fun VideoPlayer(url: String) {
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                isLoading = false
+                failed = true
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isLoading = playbackState == Player.STATE_BUFFERING ||
                     playbackState == Player.STATE_IDLE
@@ -348,19 +399,36 @@ private fun VideoPlayer(url: String) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    this.player = player
-                    useController = true
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setBackgroundColor(android.graphics.Color.BLACK)
+        if (!failed) {
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(stringResource(R.string.media_unavailable), color = EditorDefaultText)
+                Button(onClick = {
+                    failed = false
+                    isLoading = true
+                    player.prepare()
+                    player.playWhenReady = true
+                }) {
+                    Text(stringResource(R.string.retry))
                 }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-        if (isLoading) {
+            }
+        }
+        if (isLoading && !failed) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -382,9 +450,15 @@ private fun AudioPlayer(url: String) {
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(1L) }
+    var failed by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                failed = true
+                isPlaying = false
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
@@ -402,6 +476,22 @@ private fun AudioPlayer(url: String) {
             durationMs = player.duration.coerceAtLeast(1L)
             delay(250)
         }
+    }
+
+    if (failed) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+            Text(stringResource(R.string.media_unavailable), color = EditorDefaultText)
+            Button(onClick = {
+                failed = false
+                player.prepare()
+            }) {
+                Text(stringResource(R.string.retry))
+            }
+        }
+        return
     }
 
     Column(
@@ -449,8 +539,9 @@ private fun RemoteFileViewer(
     var localFile by remember { mutableStateOf<File?>(null) }
     var downloading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(url, fileName) {
+    LaunchedEffect(url, fileName, retryKey) {
         downloading = true
         failed = false
         val file = withContext(Dispatchers.IO) {
@@ -474,10 +565,18 @@ private fun RemoteFileViewer(
             RemoteFileInfoView(fileName = fileName, file = localFile!!)
         }
         else -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(text = stringResource(R.string.media_unavailable), color = EditorDefaultText)
+                Button(onClick = { retryKey++ }) {
+                    Text(stringResource(R.string.retry))
+                }
             }
-        }
+            }
+
     }
 }
 

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
@@ -99,10 +100,11 @@ fun MessageBubbleContent(
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
 ) {
     val colors = theme.colors
+    val messageTextColor = if (isMine) colors.senderText else colors.text
     if (message.deleted) {
         Text(
             text = stringResource(R.string.message_removed_for_everyone),
-            color = colors.text,
+            color = messageTextColor,
             fontStyle = FontStyle.Italic,
             style = messageTextStyle(theme),
             modifier = modifier
@@ -124,6 +126,7 @@ fun MessageBubbleContent(
     MessageBody(
         message = message,
         isMine = isMine,
+        messageTextColor = messageTextColor,
         onOpenMedia = onOpenMedia,
         theme = theme,
         imageLoader = imageLoader,
@@ -148,6 +151,7 @@ private fun messageTextStyle(theme: ChatTheme): TextStyle {
 private fun MessageBody(
     message: ChatMessage,
     isMine: Boolean,
+    messageTextColor: Color,
     onOpenMedia: (MessageType, String, String?, String) -> Unit,
     theme: ChatTheme,
     imageLoader: ImageLoader,
@@ -194,7 +198,7 @@ private fun MessageBody(
                     MediaPlaceholderRow(
                         icon = { Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent) },
                         label = stringResource(R.string.image_output),
-                        textColor = colors.text,
+                        textColor = messageTextColor,
                     )
                 }
                 MediaCaption(
@@ -240,7 +244,7 @@ private fun MessageBody(
                             )
                         },
                         label = stringResource(R.string.video_output),
-                        textColor = colors.text,
+                        textColor = messageTextColor,
                     )
                 }
                 MediaCaption(
@@ -264,7 +268,7 @@ private fun MessageBody(
                     )
                 },
                 label = stringResource(R.string.voice_output),
-                textColor = colors.text,
+                textColor = messageTextColor,
                 modifier = mediaInteractionModifier(
                     enabled = url != null,
                     onClick = if (mediaClickEnabled && url != null) {
@@ -312,7 +316,7 @@ private fun MessageBody(
                     Column(modifier = Modifier.padding(start = 6.dp)) {
                         Text(
                             text = message.fileName ?: stringResource(R.string.file_attachment),
-                            color = colors.text,
+                            color = messageTextColor,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -343,7 +347,7 @@ private fun MessageBody(
         MessageType.TEXT -> {
             LinkableMessageText(
                 text = message.displayText,
-                color = colors.text,
+                color = messageTextColor,
                 linkColor = colors.accent,
                 style = messageTextStyle(theme),
                 onOpenLink = onOpenLink,
@@ -640,6 +644,7 @@ private fun ChatMediaPreview(
                 val request = remember(model) {
                     ImageRequest.Builder(context)
                         .data(model)
+                        .allowHardware(false)
                         .size(Size(MediaImageLoader.CHAT_THUMBNAIL_MAX_PX, MediaImageLoader.CHAT_THUMBNAIL_MAX_PX))
                         .crossfade(true)
                         .build()
@@ -775,6 +780,7 @@ fun PendingUploadBubble(
     isMine: Boolean,
     theme: ChatTheme,
     onCancel: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = theme.colors
@@ -846,10 +852,25 @@ fun PendingUploadBubble(
                 }
             }
         }
-        if (upload.stage == UploadStage.PREPARING || upload.progress < 1f) {
-            Box(
+        if (upload.stage == UploadStage.FAILED) {
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onRetry, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Retry upload", tint = Color.White)
+                }
+                IconButton(onClick = onCancel, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel_upload), tint = Color.White)
+                }
+            }
+        } else if (upload.stage == UploadStage.PREPARING || upload.progress < 1f) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
                     .padding(4.dp)
                     .size(32.dp),
                 contentAlignment = Alignment.Center,

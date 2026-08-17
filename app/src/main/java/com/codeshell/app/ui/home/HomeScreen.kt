@@ -14,6 +14,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -126,12 +129,15 @@ import com.codeshell.app.util.MediaPreloadCache
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.findActivity
 import com.codeshell.app.ui.vault.VaultViewModel
+import com.codeshell.app.ui.vault.VaultSaveState
+import com.codeshell.app.ui.vault.VaultSaveTracker
 import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -499,17 +505,21 @@ fun HomeScreen(
                         if (mediaUris.isNotEmpty()) {
                             vaultViewModel.saveToVaultFromUris(
                                 uris = mediaUris,
-                                onAllComplete = {},
+                                onAllComplete = {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            context.getString(R.string.saved_to_vault)
+                                        )
+                                    }
+                                    PendingSharedContent.clear()
+                                    pendingSharedContent = null
+                                },
                                 deleteSource = false,
                             )
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    context.getString(R.string.saved_to_vault)
-                                )
-                            }
+                        } else {
+                            PendingSharedContent.clear()
+                            pendingSharedContent = null
                         }
-                        PendingSharedContent.clear()
-                        pendingSharedContent = null
                     },
                     onDismiss = {
                         PendingSharedContent.clear()
@@ -648,6 +658,7 @@ fun HomeScreen(
         expandedProfilePhotoUrl?.let { photoUrl ->
             ProfilePhotoViewer(
                 url = photoUrl,
+                vaultViewModel = vaultViewModel,
                 onDismiss = { expandedProfilePhotoUrl = null },
             )
         }
@@ -764,10 +775,34 @@ private fun SendModeHintBar(
 @Composable
 private fun ProfilePhotoViewer(
     url: String,
+    vaultViewModel: VaultViewModel,
     onDismiss: () -> Unit,
 ) {
     var scale by remember(url) { mutableFloatStateOf(1f) }
     var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    var saveInProgress by remember(url) { mutableStateOf(false) }
+    var showSaveConfirmation by remember(url) { mutableStateOf(false) }
+    val saveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(saveState) {
+        when (saveState) {
+            is VaultSaveState.Saving -> saveInProgress = true
+            is VaultSaveState.Success -> {
+                saveInProgress = false
+                showSaveConfirmation = true
+                delay(2_000L)
+                showSaveConfirmation = false
+            }
+            is VaultSaveState.Error -> saveInProgress = false
+            VaultSaveState.Idle -> Unit
+        }
+    }
+    val saveStatusText = when {
+        saveInProgress || saveState is VaultSaveState.Saving -> "Saving..."
+        saveState is VaultSaveState.Success && showSaveConfirmation ->
+            stringResource(R.string.saved_to_vault)
+        else -> null
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -789,6 +824,29 @@ private fun ProfilePhotoViewer(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(url) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val longPressReached = withTimeoutOrNull(300L) {
+                                waitForUpOrCancellation()
+                                false
+                            } ?: true
+                            if (longPressReached) {
+                                // Prevent the parent full-screen tap handler from
+                                // dismissing the viewer when this gesture ends.
+                                down.consume()
+                                if (!saveInProgress && saveState !is VaultSaveState.Saving) {
+                                    saveInProgress = true
+                                    vaultViewModel.saveToVault(
+                                        url = url,
+                                        fileName = "profile_picture.jpg",
+                                        mimeType = "image/jpeg",
+                                    )
+                                }
+                                waitForUpOrCancellation()?.consume()
+                            }
+                        }
+                    }
+                    .pointerInput(url) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             val nextScale = (scale * zoom).coerceIn(1f, 5f)
                             scale = nextScale
@@ -806,6 +864,20 @@ private fun ProfilePhotoViewer(
                         translationY = offset.y
                     },
             )
+            if (saveStatusText != null) {
+                Text(
+                    text = saveStatusText,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 32.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.72f),
+                            shape = RoundedCornerShape(20.dp),
+                        )
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                )
+            }
         }
     }
 }

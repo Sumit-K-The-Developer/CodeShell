@@ -6,10 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.R
 import com.codeshell.app.data.ai.AiChatResult
+import com.codeshell.app.data.local.NewsAiConversationRepository
+import com.codeshell.app.data.local.toDomain
+import com.codeshell.app.data.local.newsAiConversationKey
 import com.codeshell.app.data.model.AiTutorEntrySource
 import com.codeshell.app.data.model.AiTutorMessage
 import com.codeshell.app.data.model.AiTutorMessageRole
+import com.codeshell.app.data.model.NewsAiArticleContext
 import com.codeshell.app.data.repository.AiTutorRepository
+import com.codeshell.app.data.news.NewsRepository
 import com.codeshell.app.ui.disguise.snippets.LearnLesson
 import com.codeshell.app.util.NetworkConnectivity
 import kotlinx.coroutines.CancellationException
@@ -32,6 +37,9 @@ data class AiTutorUiState(
     val isTypingAnimation: Boolean = false,
     val errorMessage: String? = null,
     val lessonHint: String? = null,
+    val articleContext: NewsAiArticleContext? = null,
+    val articleFetchWarning: String? = null,
+    val articleFetchComplete: Boolean = false,
 )
 
 class AiTutorViewModel(
@@ -40,10 +48,12 @@ class AiTutorViewModel(
     private val topicLabel: String,
     private val entrySource: AiTutorEntrySource,
     private val welcomeDigits: String,
+    private val articleContext: NewsAiArticleContext? = null,
     private val repository: AiTutorRepository = AiTutorRepository(),
 ) : AndroidViewModel(application) {
 
     private val lessonRepository = (application as CodeShellApplication).lessonRepository
+    private val articleConversationRepository = NewsAiConversationRepository(application)
 
     private fun currentLesson(): LearnLesson? {
         if (_uiState.value.entrySource == AiTutorEntrySource.BOT) return null
@@ -52,6 +62,7 @@ class AiTutorViewModel(
 
     private fun usesGenericPrompt(): Boolean =
         _uiState.value.entrySource == AiTutorEntrySource.BOT ||
+            _uiState.value.entrySource == AiTutorEntrySource.NEWS_ARTICLE ||
             _uiState.value.topicLabel.isBlank()
 
     private val _uiState = MutableStateFlow(
@@ -60,6 +71,7 @@ class AiTutorViewModel(
             topicLabel = topicLabel,
             entrySource = entrySource,
             welcomeDigits = welcomeDigits,
+            articleContext = articleContext,
         ),
     )
     val uiState: StateFlow<AiTutorUiState> = _uiState.asStateFlow()
@@ -68,7 +80,11 @@ class AiTutorViewModel(
     private var requestJob: Job? = null
 
     init {
-        appendWelcomeMessage()
+        if (entrySource == AiTutorEntrySource.NEWS_ARTICLE && articleContext != null) {
+            restoreArticleConversation()
+        } else {
+            appendWelcomeMessage()
+        }
     }
 
     fun onInputChange(text: String) {
@@ -98,20 +114,83 @@ class AiTutorViewModel(
                 lessonHint = null,
             )
         }
+        persistArticleConversation()
 
         requestJob?.cancel()
         requestJob = viewModelScope.launch {
-            try {
-                val state = _uiState.value
-                when (
-                    val result = repository.sendMessage(
-                        topicLabel = state.topicLabel,
-                        lesson = currentLesson(),
-                        priorMessages = priorMessages,
-                        userText = text,
-                        generic = usesGenericPrompt(),
-                    )
-                ) {
+            if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) {
+                resolveArticleContext()
+            }
+            sendMessageInternal(text, priorMessages, userMessage.id)
+        }
+    }
+
+    fun sendArticlePrompt(prompt: String) {
+        if (entrySource != AiTutorEntrySource.NEWS_ARTICLE ||
+            _uiState.value.isLoading ||
+            _uiState.value.isTypingAnimation ||
+            prompt.isBlank()
+        ) return
+        val userMessage = AiTutorMessage(role = AiTutorMessageRole.USER, content = prompt)
+        val priorMessages = _uiState.value.messages.filter {
+            it.role == AiTutorMessageRole.USER || it.role == AiTutorMessageRole.ASSISTANT
+        }
+        _uiState.update {
+            it.copy(
+                messages = it.messages + userMessage,
+                isLoading = true,
+                errorMessage = null,
+            )
+        }
+        persistArticleConversation()
+        requestJob?.cancel()
+        requestJob = viewModelScope.launch {
+            resolveArticleContext()
+            sendMessageInternal(prompt, priorMessages, userMessage.id)
+        }
+    }
+
+    private suspend fun resolveArticleContext() {
+        val article = _uiState.value.articleContext ?: articleContext ?: return
+        if (article.fullArticleFetched) return
+        val fetched = NewsRepository().fetchArticleContent(article.url)
+        val context = fetched.getOrNull()?.takeIf { it.isNotBlank() }
+        val warning = if (context == null) {
+                getApplication<Application>().getString(R.string.ai_tutor_article_fetch_warning)
+            } else {
+                null
+            }
+        _uiState.update {
+            it.copy(
+                articleContext = article.copy(
+                    cachedText = context ?: article.cachedText,
+                    fullArticleFetched = context != null,
+                ),
+                articleFetchWarning = warning,
+                articleFetchComplete = context != null,
+            )
+        }
+        persistArticleConversation()
+    }
+
+    private suspend fun sendMessageInternal(
+        text: String,
+        priorMessages: List<AiTutorMessage>,
+        userMessageId: String,
+    ) {
+        val context = getApplication<Application>()
+        try {
+            val state = _uiState.value
+            when (
+                val result = repository.sendMessage(
+                    topicLabel = state.topicLabel,
+                    lesson = currentLesson(),
+                    priorMessages = priorMessages,
+                    userText = text,
+                    generic = usesGenericPrompt(),
+                    articleContext = state.articleContext,
+                )
+            ) {
                     is AiChatResult.Success -> {
                         val assistantMessage = AiTutorMessage(
                             role = AiTutorMessageRole.ASSISTANT,
@@ -128,17 +207,16 @@ class AiTutorViewModel(
                         }
                         animateAssistantTyping(assistantMessage.id, result.text)
                     }
-                    is AiChatResult.RateLimited -> rollbackUserMessage(userMessage.id, text, result.message)
+                    is AiChatResult.RateLimited -> rollbackUserMessage(userMessageId, text, result.message)
                     is AiChatResult.NoApiKey -> rollbackUserMessage(
-                        userMessage.id,
+                        userMessageId,
                         text,
                         context.getString(R.string.ai_tutor_no_api_key),
                     )
-                    is AiChatResult.Error -> rollbackUserMessage(userMessage.id, text, result.message)
-                }
-            } catch (_: CancellationException) {
-                _uiState.update { it.copy(isLoading = false) }
+                    is AiChatResult.Error -> rollbackUserMessage(userMessageId, text, result.message)
             }
+        } catch (_: CancellationException) {
+            _uiState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -168,6 +246,7 @@ class AiTutorViewModel(
                 isTypingAnimation = false,
             )
         }
+        persistArticleConversation()
     }
 
     private fun rollbackUserMessage(userMessageId: String, failedText: String, message: String) {
@@ -179,6 +258,7 @@ class AiTutorViewModel(
             )
         }
         showFailureWithLessonHint(message)
+        persistArticleConversation()
     }
 
     private fun animateAssistantTyping(messageId: String, fullText: String) {
@@ -216,8 +296,9 @@ class AiTutorViewModel(
                     },
                 )
             }
+            persistArticleConversation()
         }
-    }
+        }
 
     override fun onCleared() {
         requestJob?.cancel()
@@ -250,7 +331,8 @@ class AiTutorViewModel(
                 state.topicLabel,
             )
             AiTutorEntrySource.DISGUISE,
-            AiTutorEntrySource.BOT -> {
+            AiTutorEntrySource.BOT,
+            AiTutorEntrySource.NEWS_ARTICLE -> {
                 val digits = state.welcomeDigits.ifBlank { "…" }
                 context.getString(R.string.ai_tutor_welcome_disguise, digits)
             }
@@ -263,6 +345,48 @@ class AiTutorViewModel(
                         content = welcome,
                     ),
                 ),
+            )
+        }
+    }
+
+    private fun restoreArticleConversation() {
+        val article = articleContext ?: return
+        viewModelScope.launch {
+            val stored = articleConversationRepository.load(
+                newsAiConversationKey(
+                    url = article.url,
+                    title = article.title,
+                    sourceName = article.sourceName,
+                    publishedAt = article.publishedAt,
+                ),
+            )
+            val restoredMessages = stored?.messages?.mapNotNull { it.toDomain() }
+            if (restoredMessages.isNullOrEmpty()) {
+                appendWelcomeMessage()
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    messages = restoredMessages,
+                    articleContext = stored.articleContext?.toDomain() ?: article,
+                )
+            }
+        }
+    }
+
+    private fun persistArticleConversation() {
+        if (entrySource != AiTutorEntrySource.NEWS_ARTICLE) return
+        val article = _uiState.value.articleContext ?: articleContext ?: return
+        viewModelScope.launch {
+            articleConversationRepository.save(
+                articleKey = newsAiConversationKey(
+                    url = article.url,
+                    title = article.title,
+                    sourceName = article.sourceName,
+                    publishedAt = article.publishedAt,
+                ),
+                articleContext = article,
+                messages = _uiState.value.messages,
             )
         }
     }

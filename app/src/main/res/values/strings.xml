@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="chat_title_double_tap_vault_capture">Allow terminal capture</string>
+    <string name="chat_title_double_tap_vault_capture_desc">Save the visible chat page directly to Vault.</string>
     <string name="press_back_again_to_exit">Press back again to exit</string>
     <string name="app_name">CodeShell</string>
     <string name="lang_python">Python</string>
@@ -66,6 +68,8 @@
     <string name="attach_gallery">Attach photo or video</string>
     <string name="take_photo">Take photo</string>
     <string name="record_video">Record video</string>
+    <string name="camera_capture_failed">Photo capture was canceled or failed.</string>
+    <string name="video_capture_failed">Video capture was canceled or failed.</string>
     <string name="camera">Camera</string>
     <string name="attach_file">Attach file</string>
     <string name="hold_to_record">Hold to record voice</string>
@@ -73,7 +77,7 @@
     <string name="image_output">Image output</string>
     <string name="video_output">Video output</string>
     <string name="voice_output">Voice output</string>
-    <string name="video_too_large">Video is too large. Maximum size is 50 MB after compression.</string>
+    <string name="video_too_large">Video is too large. Maximum size is 500 MB.</string>
     <string name="video_prepare_failed">Could not prepare video for upload.</string>
     <string name="processing_video">Processing video…</string>
     <string name="replying_to">Replying to %1$s</string>
@@ -193,6 +197,7 @@
     <string name="saved_to_device">Saved to Downloads</string>
     <string name="save_failed">Could not save file</string>
     <string name="media_unavailable">Media unavailable</string>
+    <string name="retry">Retry</string>
     <string name="attach_media">Attach media</string>
     <string name="clear_terminal">Clear terminal</string>
     <string name="clear_terminal_confirm">Remove all output from this session?</string>
@@ -222,6 +227,7 @@
     <string name="chat_interface_style_default">Default</string>
     <string name="chat_interface_style_vintage">Vintage</string>
     <string name="chat_interface_style_ide">IDE</string>
+    <string name="chat_interface_style_ide_light">IDE light</string>
     <string name="chat_message_font_scale">Message text size</string>
     <string name="chat_message_font_scale_desc">Adjust text size in session message bubbles.</string>
     <string name="chat_message_font_scale_value">%1$d%%</string>
@@ -280,10 +286,15 @@
     <string name="call_network_failed">Connection dropped</string>
     <string name="call_user_busy">User is busy</string>
     <string name="call_permission_denied_remote">Required permission was not granted</string>
+    <string name="call_permission_denied_local">Camera or microphone access was turned off. Allow it in Settings, then try again.</string>
     <string name="call_connect_failed">Couldn\'t connect — try again</string>
     <string name="video_call_connect_failed">Couldn\'t connect live — try Voice Connect or try again</string>
     <string name="call_permission_denied">Microphone permission is required for calls</string>
     <string name="call_camera_permission_denied">Camera and microphone permissions are required for Live Connect</string>
+    <string name="notification_permission_enabled">Notifications enabled.</string>
+    <string name="notification_permission_disabled">Notifications are off. Enable them in Settings if you want alerts.</string>
+    <string name="allow_notification_permission_terminal_alert">allow notification to get alert</string>
+    <string name="call_camera_start_failed">Could not start the camera. Check camera access and try again.</string>
     <string name="call_declined">Voice Connect declined</string>
     <string name="video_call_declined">Live Connect declined</string>
     <string name="call_no_answer">No answer</string>
@@ -310,6 +321,7 @@
     <!-- AI tutor -->
     <string name="ai_tutor_fab">Ask AI tutor</string>
     <string name="ai_tutor_title_assistant">Learning Assistant</string>
+    <string name="ai_tutor_news_title">InLine News AI</string>
     <string name="ai_tutor_welcome_topic">Ask me anything about %1$s.</string>
     <string name="ai_tutor_welcome_topic_prefix">Ask me anything about</string>
     <string name="ai_tutor_welcome_disguise">Welcome #%1$s. What do you want to learn today?</string>
@@ -322,6 +334,7 @@
     <string name="ai_tutor_offline">No internet connection.</string>
     <string name="ai_tutor_no_api_key">AI tutor is not configured.</string>
     <string name="ai_tutor_lesson_hint">You can still read the %1$s lesson in the learning screen.</string>
+    <string name="ai_tutor_article_fetch_warning">Unable to fetch the full article. Cached article text will be used where available.</string>
 
     <!-- Vault save foreground service -->
     <string name="vault_save_notification_title">Saving to Vault</string>

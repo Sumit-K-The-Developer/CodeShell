@@ -4,23 +4,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.codeshell.app.ui.theme.EditorBackground
+import com.codeshell.app.ui.theme.EditorDefaultText
+import com.codeshell.app.ui.theme.FabAccent
+import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.ui.theme.DisguiseTheme
 
 object AiTutorColors {
-    val Background = Color(0xFFF7F8FA)
-    val Surface = Color(0xFFFFFFFF)
-    val TopBar = Color(0xFFFFFFFF)
-    val TextPrimary = Color(0xFF1A1D21)
-    val TextSecondary = Color(0xFF5C6370)
-    val UserBubble = Color(0xFFE3F2EC)
-    val AssistantBubble = Color(0xFFFFFFFF)
-    val WelcomeBackground = Color(0xFFEAF6F2)
-    val WelcomeBorder = Color(0xFFB8E0D4)
-    val Accent = Color(0xFF0D9488)
-    val AccentSoft = Color(0xFF14B8A6)
-    val Divider = Color(0xFFE5E7EB)
-    val InputBackground = Color(0xFFF3F4F6)
-    val ErrorBackground = Color(0xFFFFF5F5)
-    val ErrorText = Color(0xFFB42318)
+    val Background = EditorBackground
+    val Surface = TopBarBackground
+    val TopBar = TopBarBackground
+    val TextPrimary = EditorDefaultText
+    val TextSecondary = if (DisguiseTheme.isLight) Color(0xFF5B6573) else Color(0xFFAAB4BE)
+    val UserBubble = if (DisguiseTheme.isLight) Color(0xFFDCEAF7) else Color(0xFF263F5A)
+    val AssistantBubble = if (DisguiseTheme.isLight) Color(0xFFFFFFFF) else Color(0xFF252B33)
+    val WelcomeBackground = if (DisguiseTheme.isLight) Color(0xFFF0EDE8) else Color(0xFF263238)
+    val WelcomeBorder = if (DisguiseTheme.isLight) Color(0xFFC7CDD5) else Color(0xFF3A4452)
+    val Accent = FabAccent
+    val AccentSoft = Color(0xFF6AA7E8)
+    val Divider = Color(0xFF3A4452)
+    val InputBackground = if (DisguiseTheme.isLight) Color(0xFFFFFFFF) else Color(0xFF2D3748)
+    val ErrorBackground = if (DisguiseTheme.isLight) Color(0xFFFFE8E6) else Color(0xFF4A2528)
+    val ErrorText = if (DisguiseTheme.isLight) Color(0xFF9B1C1C) else Color(0xFFFFB4AB)
 }
 
 object AiTutorTypography {

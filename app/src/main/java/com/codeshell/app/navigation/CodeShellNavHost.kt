@@ -18,6 +18,10 @@ import androidx.navigation.navArgument
 import com.codeshell.app.data.repository.AuthRepository
 import com.codeshell.app.MainActivity
 import com.codeshell.app.messaging.PendingChatNavigation
+import com.codeshell.app.messaging.PendingNewsAiArticle
+import com.codeshell.app.messaging.PendingNewsArticleRestore
+import com.codeshell.app.data.model.NewsAiArticleContext
+import com.codeshell.app.data.news.NewsArticle
 import com.codeshell.app.ui.auth.LoginScreen
 import com.codeshell.app.ui.auth.SignUpScreen
 import com.codeshell.app.ui.aitutor.AiTutorScreen
@@ -68,8 +72,32 @@ fun CodeShellNavHost(
         navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
     }
 
+    val openNewsAi: (NewsArticle) -> Unit = { article ->
+        val title = article.title?.trim().takeUnless { it.isNullOrBlank() } ?: "Article"
+        PendingNewsAiArticle.set(
+            NewsAiArticleContext(
+                title = title,
+                sourceName = article.source?.name ?: "Unknown",
+                publishedAt = article.publishedAt.orEmpty(),
+                url = article.url.orEmpty(),
+                cachedText = listOfNotNull(article.description, article.content)
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n\n"),
+            ),
+        )
+        navController.navigate(
+            Routes.aiTutor(
+                topicId = "news-article",
+                topicLabel = title,
+                entrySource = "news_article",
+            ),
+        )
+    }
+
     val backStackEntry by navController.currentBackStackEntryAsState()
     val secure = backStackEntry?.destination?.route.requiresSecureScreen()
+    val videoMediaViewerOpen = backStackEntry?.destination?.route == Routes.MEDIA &&
+        backStackEntry?.arguments?.getString("type") == "video"
     SecureScreenEffect(secure = secure)
 
     val activity = LocalContext.current.findActivity() as? MainActivity
@@ -105,7 +133,10 @@ fun CodeShellNavHost(
         popExitTransition = { fadeOut(animationSpec = tween(FADE_DURATION_MS)) }
     ) {
         composable(Routes.CODING_LEARN) {
-            DisguiseLearnScreen(onSecretEntry = onSecretEntry)
+            DisguiseLearnScreen(
+                onSecretEntry = onSecretEntry,
+                onOpenNewsAi = openNewsAi,
+            )
         }
 
         composable(Routes.LOGIN) {
@@ -184,6 +215,7 @@ fun CodeShellNavHost(
                     }
                     navController.navigate(Routes.media(type))
                 },
+                pauseInactivity = videoMediaViewerOpen,
             )
         }
 
@@ -203,6 +235,9 @@ fun CodeShellNavHost(
                 fileName = fileName,
                 chatId = mediaChatId,
                 messageId = mediaMessageId,
+                onNavigateToLearning = {
+                    navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -238,14 +273,26 @@ fun CodeShellNavHost(
             val entrySource = when (entrySourceRaw) {
                 "disguise" -> AiTutorEntrySource.DISGUISE
                 "bot" -> AiTutorEntrySource.BOT
+                "news_article" -> AiTutorEntrySource.NEWS_ARTICLE
                 else -> AiTutorEntrySource.FAB
+            }
+            val articleContext = remember(backStackEntry) {
+                PendingNewsAiArticle.consume()
             }
             AiTutorScreen(
                 topicId = topicId,
                 topicLabel = topicLabel,
                 entrySource = entrySource,
                 welcomeDigits = welcomeDigits,
-                onNavigateBack = { navController.popBackStack() },
+                articleContext = articleContext,
+                onNavigateBack = {
+                    if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) {
+                        articleContext?.url?.takeIf { it.isNotBlank() }?.let {
+                            PendingNewsArticleRestore.set(it)
+                        }
+                    }
+                    navController.popBackStack()
+                },
             )
         }
 

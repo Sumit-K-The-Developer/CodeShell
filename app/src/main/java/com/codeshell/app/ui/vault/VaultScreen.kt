@@ -23,6 +23,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -43,6 +44,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -94,9 +96,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
@@ -123,23 +127,63 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.codeshell.app.R
+import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.VaultItem
+import com.codeshell.app.data.preferences.AppPreferences
+import com.codeshell.app.ui.chat.ChatAccessLockOverlay
+import com.codeshell.app.ui.chat.rememberAdaptiveChatTheme
 import com.codeshell.app.ui.components.MediaCropDialog
-import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.util.findActivity
+import com.codeshell.app.util.ChatAccessCodeHasher
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.util.formatFileSize
 import com.codeshell.app.util.mimeTypeForFileName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
+
+private val EditorBackground: Color
+    @Composable get() = MaterialTheme.colorScheme.background
+
+private val EditorDefaultText: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurface
+
+private val TopBarBackground: Color
+    @Composable get() = MaterialTheme.colorScheme.surface
+
+private fun vaultDateGroupKey(timestamp: Long): Pair<Int, Int> {
+    val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+    return calendar.get(Calendar.YEAR) to calendar.get(Calendar.DAY_OF_YEAR)
+}
+
+private fun vaultDateGroupLabel(timestamp: Long): String {
+    val itemCalendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val today = Calendar.getInstance()
+    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+
+    fun sameDay(left: Calendar, right: Calendar): Boolean =
+        left.get(Calendar.ERA) == right.get(Calendar.ERA) &&
+            left.get(Calendar.YEAR) == right.get(Calendar.YEAR) &&
+            left.get(Calendar.DAY_OF_YEAR) == right.get(Calendar.DAY_OF_YEAR)
+
+    return when {
+        sameDay(itemCalendar, today) -> "Today"
+        sameDay(itemCalendar, yesterday) -> "Yesterday"
+        else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,6 +198,17 @@ fun VaultScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val appPreferences = remember { AppPreferences(context.applicationContext) }
+    val accessCodeEnabled by appPreferences.chatAccessCodeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val selectedChatStyle by appPreferences.chatInterfaceStyle.collectAsStateWithLifecycle(
+        initialValue = ChatInterfaceStyle.DEFAULT,
+    )
+    val vaultTheme = rememberAdaptiveChatTheme(
+        if (selectedChatStyle == ChatInterfaceStyle.IDE_LIGHT) ChatInterfaceStyle.IDE_LIGHT else ChatInterfaceStyle.DEFAULT
+    )
+    val vaultAccessUnlocked by VaultAccessSession.unlocked.collectAsStateWithLifecycle()
+    var vaultAccessDigits by remember { mutableStateOf("") }
+    var vaultAccessError by remember { mutableStateOf<String?>(null) }
     // Resolve the host activity so we can suppress the secure-exit (hide-on-home)
     // feature while an external media picker is showing. Without this, opening
     // the system photo picker triggers onUserLeaveHint() which finishes the
@@ -216,8 +271,10 @@ fun VaultScreen(
                     // Some providers don't support persistable permission
                 }
             }
-            viewModel.saveToVaultFromUris(uris) {
-                // All items processed
+            viewModel.saveToVaultFromUris(uris, deleteSource = false) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Added ${uris.size} item(s) to Vault")
+                }
             }
         }
     }
@@ -238,7 +295,10 @@ fun VaultScreen(
         // Safety net: if the screen leaves while suppressHideOnHome was set
         // (e.g. process went away) make sure the flag is cleared so the
         // chat interface's secure exit keeps working elsewhere.
-        onDispose { setSuppressHideOnHome(false) }
+        onDispose {
+            setSuppressHideOnHome(false)
+            VaultAccessSession.lock()
+        }
     }
 
     BackHandler(enabled = uiState.selectionMode) {
@@ -288,7 +348,7 @@ fun VaultScreen(
 
     Scaffold(
         modifier = touchActivityModifier,
-        containerColor = EditorBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -299,7 +359,12 @@ fun VaultScreen(
                                 stringResource(R.string.selected_count, uiState.selectedItems.size)
                             uiState.selectionMode -> stringResource(R.string.select_items)
                             else -> stringResource(R.string.vault_title)
-                        }
+                        },
+                        modifier = if (uiState.selectionMode) {
+                            Modifier.clickable { viewModel.toggleSelectAllItems() }
+                        } else {
+                            Modifier
+                        },
                     )
                 },
                 navigationIcon = {
@@ -376,7 +441,7 @@ fun VaultScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TopBarBackground,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = EditorDefaultText,
                     navigationIconContentColor = EditorDefaultText,
                 ),
@@ -463,6 +528,7 @@ fun VaultScreen(
                 }
 
                 else -> {
+                    val groupedItems = uiState.items.groupBy { vaultDateGroupKey(it.dateSaved) }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         contentPadding = PaddingValues(2.dp),
@@ -470,21 +536,34 @@ fun VaultScreen(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        items(uiState.items, key = { it.id }) { item ->
-                            VaultItemTile(
-                                item = item,
-                                viewModel = viewModel,
-                                selectionMode = uiState.selectionMode,
-                                selected = item.id in uiState.selectedItems,
-                                modifier = Modifier.aspectRatio(1f),
-                                onToggleSelection = { viewModel.toggleItemSelection(item) },
-                                onLongPress = {
-                                    if (!uiState.selectionMode) {
-                                        viewModel.toggleSelectionMode()
-                                        viewModel.toggleItemSelection(item)
-                                    }
-                                },
-                            )
+                        groupedItems.forEach { (_, itemsForDate) ->
+                            item(
+                                key = "date-${vaultDateGroupKey(itemsForDate.first().dateSaved)}",
+                                span = { GridItemSpan(maxLineSpan) },
+                            ) {
+                                Text(
+                                    text = vaultDateGroupLabel(itemsForDate.first().dateSaved),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = EditorDefaultText.copy(alpha = 0.72f),
+                                    modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 6.dp),
+                                )
+                            }
+                            items(itemsForDate, key = { it.id }) { item ->
+                                VaultItemTile(
+                                    item = item,
+                                    viewModel = viewModel,
+                                    selectionMode = uiState.selectionMode,
+                                    selected = item.id in uiState.selectedItems,
+                                    modifier = Modifier.aspectRatio(1f),
+                                    onToggleSelection = { viewModel.toggleItemSelection(item) },
+                                    onLongPress = {
+                                        if (!uiState.selectionMode) {
+                                            viewModel.toggleSelectionMode()
+                                            viewModel.toggleItemSelection(item)
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -671,6 +750,31 @@ fun VaultScreen(
         )
     }
 
+    if (accessCodeEnabled && !vaultAccessUnlocked) {
+        ChatAccessLockOverlay(
+            digits = vaultAccessDigits,
+            onDigitsChange = {
+                vaultAccessDigits = it
+                vaultAccessError = null
+            },
+            onComplete = { code ->
+                scope.launch {
+                    val storedHash = appPreferences.chatAccessCodeHash.first()
+                    if (ChatAccessCodeHasher.verify(code, storedHash)) {
+                        VaultAccessSession.unlock()
+                        vaultAccessDigits = ""
+                    } else {
+                        vaultAccessDigits = ""
+                        vaultAccessError = "Incorrect access code"
+                    }
+                }
+            },
+            errorMessage = vaultAccessError,
+            theme = vaultTheme,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+
     if (showSendConfirmationDialog && pendingSendItem != null) {
         AlertDialog(
             onDismissRequest = {
@@ -842,6 +946,21 @@ private fun VaultItemTile(
                         }
                     }
                 }
+        }
+        if (item.importedFromGallery) {
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .size(14.dp),
+            ) {
+                val marker = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width, 0f)
+                    lineTo(0f, size.height)
+                    close()
+                }
+                drawPath(marker, Color(0xFF35C759))
+            }
         }
         if (item.isVideo) {
             Box(
@@ -1254,6 +1373,14 @@ private fun VaultItemViewerDialog(
             }
         }
     }
+}
+
+object VaultAccessSession {
+    private val _unlocked = MutableStateFlow(false)
+    val unlocked = _unlocked.asStateFlow()
+
+    fun unlock() { _unlocked.value = true }
+    fun lock() { _unlocked.value = false }
 }
 
 @Composable

@@ -43,6 +43,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
   const needsInitialScroll = useRef(true);
   const lastMessageCount = useRef(0);
+  const stickToBottom = useRef(true);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const markedSeen = useRef(new Set<string>());
@@ -66,6 +67,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
     markedExpiryBackfill.current.clear();
     needsInitialScroll.current = true;
     lastMessageCount.current = 0;
+    stickToBottom.current = true;
     getParticipantIds(chatId).then((participants) => {
       const other = participants.find((id) => id !== userId) ?? null;
       setOtherUserId(other);
@@ -100,6 +102,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
       container.scrollTop = container.scrollHeight;
       needsInitialScroll.current = false;
       lastMessageCount.current = messages.length;
+      stickToBottom.current = true;
       return;
     }
 
@@ -107,12 +110,47 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
     lastMessageCount.current = messages.length;
     if (!grew && !isTyping) return;
 
-    const nearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-    if (!nearBottom && !isTyping) return;
+    // Evaluate stickiness from the user's position before this render. Once
+    // the new message is in the DOM, scrollHeight has already grown and a
+    // post-render near-bottom check incorrectly reports that the user scrolled
+    // away from the bottom.
+    if (!stickToBottom.current && !isTyping) return;
 
-    scrollAnchorRef.current?.scrollIntoView({ behavior: "smooth" });
+    const scrollToLatest = () => {
+      const latestContainer = messagesContainerRef.current;
+      if (!latestContainer || !stickToBottom.current) return;
+      latestContainer.scrollTo({
+        top: latestContainer.scrollHeight,
+        behavior: grew ? "smooth" : "auto",
+      });
+    };
+
+    scrollToLatest();
+    requestAnimationFrame(scrollToLatest);
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const updateBottomIntent = () => {
+      stickToBottom.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    };
+    container.addEventListener("scroll", updateBottomIntent, { passive: true });
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (stickToBottom.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      container.removeEventListener("scroll", updateBottomIntent);
+      resizeObserver.disconnect();
+    };
+  }, [chatId]);
 
   useEffect(() => {
     if (!chatId || !userId) return;

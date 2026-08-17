@@ -2,6 +2,7 @@ package com.codeshell.app.ui.auth
 
 import android.app.Application
 import android.net.Uri
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.data.repository.AuthRepository
@@ -179,6 +180,13 @@ class SignUpViewModel(
                                 storageRepository.uploadProfilePhoto(userId, profilePhotoUri)
                                     .onSuccess { avatarUrl ->
                                         userRepository.updateAvatarUrl(userId, avatarUrl.withAvatarCacheVersion())
+                                    }
+                                    .onFailure { error ->
+                                        Toast.makeText(
+                                            getApplication(),
+                                            "Registration completed, but the profile picture could not be saved.",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
                                     }
                             }
                             _uiState.update { it.copy(isLoading = false) }

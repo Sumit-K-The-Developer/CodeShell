@@ -5,6 +5,7 @@ import android.net.Uri
 enum class UploadStage {
     PREPARING,
     UPLOADING,
+    FAILED,
 }
 
 data class PendingUpload(
@@ -15,4 +16,5 @@ data class PendingUpload(
     val fileSize: Long? = null,
     val stage: UploadStage = UploadStage.PREPARING,
     val progress: Float = 0f,
+    val errorMessage: String? = null,
 )

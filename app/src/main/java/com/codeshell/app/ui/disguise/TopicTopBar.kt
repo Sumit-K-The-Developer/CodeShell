@@ -28,6 +28,8 @@ import com.codeshell.app.disguise.ShellFlavorConfigProvider
 import com.codeshell.app.ui.disguise.snippets.LearnTopic
 import com.codeshell.app.ui.theme.EditorBackground
 import com.codeshell.app.ui.theme.EditorDefaultText
+import com.codeshell.app.ui.theme.EditorMutedText
+import com.codeshell.app.ui.theme.EditorOnAccent
 import com.codeshell.app.ui.theme.FabAccent
 import com.codeshell.app.ui.theme.FabAccentSelected
 import com.codeshell.app.ui.theme.TopBarBackground
@@ -110,7 +112,7 @@ private fun FilterChipTopBar(
                     label = { Text(chipLabel(topic)) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = FabAccentSelected,
-                        selectedLabelColor = EditorBackground,
+                        selectedLabelColor = EditorOnAccent,
                         containerColor = TopBarBackground,
                         labelColor = EditorDefaultText,
                     ),
@@ -127,7 +129,7 @@ private fun CodingTopicChip(
     modifier: Modifier = Modifier,
 ) {
     val containerColor = if (selected) FabAccentSelected else TopBarBackground
-    val labelColor = if (selected) EditorBackground else EditorDefaultText
+    val labelColor = if (selected) EditorOnAccent else EditorDefaultText
     val borderColor = if (selected) FabAccentSelected else EditorDefaultText.copy(alpha = 0.2f)
 
     Box(
@@ -206,7 +208,7 @@ private fun GrammarTabChip(
             text = label,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) FabAccent else EditorDefaultText.copy(alpha = 0.65f),
+            color = if (selected) FabAccent else EditorMutedText,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
         )
         Box(

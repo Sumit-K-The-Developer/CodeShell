@@ -70,7 +70,11 @@ class AppPreferences(private val context: Context) {
     }
 
     val secureTerminalOnly: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[SECURE_TERMINAL_ONLY] ?: false
+        prefs[SECURE_TERMINAL_ONLY] ?: true
+    }
+
+    val chatTitleDoubleTapVaultCapture: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[CHAT_TITLE_DOUBLE_TAP_VAULT_CAPTURE] ?: false
     }
 
     val secretChipDoubleTapEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -184,6 +188,12 @@ class AppPreferences(private val context: Context) {
     suspend fun setSecureTerminalOnly(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[SECURE_TERMINAL_ONLY] = enabled
+        }
+    }
+
+    suspend fun setChatTitleDoubleTapVaultCapture(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[CHAT_TITLE_DOUBLE_TAP_VAULT_CAPTURE] = enabled
         }
     }
 
@@ -304,6 +314,8 @@ class AppPreferences(private val context: Context) {
         private val CHAT_INTERFACE_STYLE = stringPreferencesKey("chat_interface_style")
         private val SECRET_DIALER_CODE = stringPreferencesKey("secret_dialer_code")
         private val SECURE_TERMINAL_ONLY = booleanPreferencesKey("secure_terminal_only")
+        private val CHAT_TITLE_DOUBLE_TAP_VAULT_CAPTURE =
+            booleanPreferencesKey("chat_title_double_tap_vault_capture")
         private val SECRET_CHIP_DOUBLE_TAP_ENABLED = booleanPreferencesKey("secret_chip_double_tap_enabled")
         private val SECRET_CHIP_LAST_RESET_AT = longPreferencesKey("secret_chip_last_reset_at")
         private val CHAT_ACCESS_CODE_ENABLED = booleanPreferencesKey("chat_access_code_enabled")

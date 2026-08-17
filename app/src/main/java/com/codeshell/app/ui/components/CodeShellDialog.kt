@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +20,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.codeshell.app.ui.theme.EditorBackground
@@ -79,6 +83,8 @@ fun CodeShellDialogAction(
         },
         modifier = modifier
             .clickable(onClick = onClick)
+            .defaultMinSize(minHeight = 48.dp)
+            .semantics { role = Role.Button }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
@@ -96,6 +102,8 @@ fun CodeShellDialogChoice(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .defaultMinSize(minHeight = 48.dp)
+            .semantics { role = Role.Button }
             .padding(vertical = 10.dp),
     )
 }

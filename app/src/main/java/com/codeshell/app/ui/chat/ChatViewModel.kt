@@ -90,6 +90,7 @@ class ChatViewModel(
     private var hasMoreOlderMessages = true
     private val locallyHiddenMessageIds = mutableSetOf<String>()
     private val evictedMediaMessageIds = mutableSetOf<String>()
+    private val optimisticallyDeletedMessageIds = mutableSetOf<String>()
 
     private fun offlineMessage(): String =
         NetworkConnectivity.message(
@@ -176,12 +177,18 @@ class ChatViewModel(
                     }
                 }
                 _uiState.update { it.copy(wallpaperVaultId = vaultId, wallpaperVaultImageUri = uri) }
+                if (!vaultId.isNullOrBlank() && uri == null) {
+                    appPreferences.setChatWallpaperSource(
+                        chatId,
+                        com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_AVATAR,
+                    )
+                }
             }
         }
     }
 
     fun onInputChange(text: String) {
-        _uiState.update { it.copy(inputText = text, errorMessage = null) }
+        _uiState.update { it.copy(inputText = text, errorMessage = null, sendErrorMessage = null) }
         if (_uiState.value.editingMessageId == null) {
             viewModelScope.launch {
                 appPreferences.setChatDraft(chatId, text)
@@ -263,6 +270,7 @@ class ChatViewModel(
                             inputText = if (result.isSuccess) "" else it.inputText,
                             replyTarget = if (result.isSuccess) null else it.replyTarget,
                             errorMessage = messagingErrorMessage(result.exceptionOrNull()),
+                            sendErrorMessage = messagingErrorMessage(result.exceptionOrNull()),
                         )
                     }
                     if (result.isSuccess) {
@@ -276,6 +284,12 @@ class ChatViewModel(
     }
 
     fun addDraftMedia(uri: Uri, type: MessageType, fileName: String?, fileSize: Long?) {
+        if (type == MessageType.VIDEO && fileSize != null && fileSize > VideoUploadProcessor.MAX_UPLOAD_BYTES) {
+            _uiState.update { state ->
+                state.copy(videoTooLargeMessage = getApplication<Application>().getString(R.string.video_too_large))
+            }
+            return
+        }
         val draft = DraftMedia(
             localId = UUID.randomUUID().toString(),
             type = type,
@@ -306,11 +320,13 @@ class ChatViewModel(
      * Adds a document picked via the '+' file chooser to the draft list.
      */
     fun addPickedFileDraft(uri: Uri) {
+        val app = getApplication<Application>()
         val resolver = getApplication<Application>().contentResolver
         val mimeType = resolver.getType(uri).orEmpty().lowercase()
+        val isVideo = isVideoUri(app, resolver, uri)
         val type = when {
+            isVideo -> MessageType.VIDEO
             mimeType.startsWith("image/") -> MessageType.IMAGE
-            mimeType.startsWith("video/") -> MessageType.VIDEO
             else -> MessageType.FILE
         }
         addDraftMedia(uri, type, queryDisplayName(resolver, uri), queryFileSize(resolver, uri))
@@ -371,7 +387,7 @@ class ChatViewModel(
                 val resolver = getApplication<Application>().contentResolver
                 content.videoUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "video.mp4"
-                    addDraftMedia(uri, MessageType.VIDEO, name, null)
+                    addDraftMedia(uri, MessageType.VIDEO, name, queryFileSize(resolver, uri))
                 }
                 content.imageUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "image.jpg"
@@ -380,9 +396,10 @@ class ChatViewModel(
                 content.fileUris.forEach { uri ->
                     val name = queryDisplayName(resolver, uri) ?: "file"
                     val mimeType = resolver.getType(uri).orEmpty().lowercase()
+                    val isVideo = isVideoUri(getApplication<Application>(), resolver, uri)
                     val type = when {
+                        isVideo -> MessageType.VIDEO
                         mimeType.startsWith("image/") -> MessageType.IMAGE
-                        mimeType.startsWith("video/") -> MessageType.VIDEO
                         else -> MessageType.FILE
                     }
                     addDraftMedia(uri, type, name, queryFileSize(resolver, uri))
@@ -424,12 +441,30 @@ class ChatViewModel(
         BackgroundUploadRegistry.remove(localId)
     }
 
+    fun retryPendingUpload(localId: String) {
+        val upload = _uiState.value.pendingUploads.firstOrNull { it.localId == localId } ?: return
+        if (upload.stage != UploadStage.FAILED) return
+        _uiState.update { state ->
+            state.copy(pendingUploads = state.pendingUploads.filterNot { it.localId == localId })
+        }
+        BackgroundUploadRegistry.remove(localId)
+        uploadMedia(upload.localUri, upload.type, upload.fileName, upload.fileSize)
+    }
+
     fun sendImage(uri: Uri) {
         uploadMedia(uri, MessageType.IMAGE, fileName = "image.jpg")
     }
 
     fun sendVideo(uri: Uri) {
-        uploadMedia(uri, MessageType.VIDEO, fileName = "video.mp4")
+        val resolver = getApplication<Application>().contentResolver
+        val fileSize = queryFileSize(resolver, uri)
+        if (fileSize != null && fileSize > VideoUploadProcessor.MAX_UPLOAD_BYTES) {
+            _uiState.update { state ->
+                state.copy(videoTooLargeMessage = getApplication<Application>().getString(R.string.video_too_large))
+            }
+            return
+        }
+        uploadMedia(uri, MessageType.VIDEO, fileName = "video.mp4", fileSize = fileSize)
     }
 
     fun sendPickedMedia(uri: Uri) {
@@ -442,7 +477,12 @@ class ChatViewModel(
     }
 
     fun sendFile(uri: Uri) {
+        val app = getApplication<Application>()
         val resolver = getApplication<Application>().contentResolver
+        if (isVideoUri(app, resolver, uri)) {
+            sendVideo(uri)
+            return
+        }
         val fileName = queryDisplayName(resolver, uri)
         val fileSize = queryFileSize(resolver, uri)
         uploadMedia(uri, MessageType.FILE, fileName = fileName, fileSize = fileSize)
@@ -519,12 +559,17 @@ class ChatViewModel(
                         getApplication<Application>().getString(R.string.video_prepare_failed)
                 }
                 _uiState.update { state ->
+                    val tooLarge = error is VideoUploadProcessor.VideoTooLargeException
                     state.copy(
-                        pendingUploads = state.pendingUploads.filterNot { it.localId == localId },
-                        errorMessage = errorMessage
+                        pendingUploads = state.pendingUploads.map { upload ->
+                            if (upload.localId == localId) {
+                                upload.copy(stage = UploadStage.FAILED, errorMessage = errorMessage)
+                            } else upload
+                        },
+                        errorMessage = if (tooLarge) null else errorMessage,
+                        videoTooLargeMessage = if (tooLarge) errorMessage else state.videoTooLargeMessage,
                     )
                 }
-                BackgroundUploadRegistry.remove(localId)
                 activeUploadMessageIds.remove(localId)
                 return@launch
             }
@@ -572,12 +617,15 @@ class ChatViewModel(
                     }
                     _uiState.update { state ->
                         state.copy(
-                            pendingUploads = state.pendingUploads.filterNot { it.localId == localId },
+                            pendingUploads = state.pendingUploads.map { upload ->
+                                if (upload.localId == localId) {
+                                    upload.copy(stage = UploadStage.FAILED, errorMessage = error.message ?: "Upload failed")
+                                } else upload
+                            },
                             errorMessage = error.message ?: "Upload failed"
                         )
                     }
-                    BackgroundUploadRegistry.remove(localId)
-                }
+                    }
             )
             activeUploadJobs.remove(localId)
             activeUploadMessageIds.remove(localId)
@@ -656,15 +704,29 @@ class ChatViewModel(
         }
         if (ownMessageIds.isEmpty()) return
         if (blockIfOffline()) return
+
+        // Render the deletion before media cleanup or the Firestore write.
+        // unsendMessage removes media first, which can otherwise leave the
+        // original message visible for several seconds.
+        optimisticallyDeletedMessageIds.addAll(ownMessageIds)
+        _uiState.update {
+            it.copy(
+                messageSelectionMode = false,
+                selectedMessageIds = emptySet(),
+            )
+        }
+        publishMessages(immediate = true)
+
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    messageSelectionMode = false,
-                    selectedMessageIds = emptySet(),
-                )
-            }
             ownMessageIds.forEach { messageId ->
                 messageRepository.unsendMessage(chatId, messageId)
+                    .onFailure { error ->
+                        optimisticallyDeletedMessageIds.remove(messageId)
+                        publishMessages(immediate = true)
+                        _uiState.update {
+                            it.copy(errorMessage = messagingErrorMessage(error))
+                        }
+                    }
             }
         }
     }
@@ -689,6 +751,10 @@ class ChatViewModel(
     }
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun dismissVideoTooLargeDialog() {
+        _uiState.update { it.copy(videoTooLargeMessage = null) }
     }
 
     fun editableSelectedMessage(): ChatMessage? {
@@ -839,6 +905,12 @@ class ChatViewModel(
                 }
                 .collect { recent ->
                     recentMessages = recent
+                    // Keep the optimistic placeholder until the remote
+                    // snapshot confirms the deleted flag, so a slow listener
+                    // cannot briefly restore the original message.
+                    optimisticallyDeletedMessageIds.removeAll { messageId ->
+                        recent.any { it.id == messageId && it.deleted }
+                    }
                     if (olderMessages.isEmpty() && recent.size < MessageRepository.MESSAGE_PAGE_SIZE) {
                         hasMoreOlderMessages = false
                     }
@@ -1020,13 +1092,21 @@ class ChatViewModel(
         }
     }
 
-    private fun publishMessages() {
+    private fun publishMessages(immediate: Boolean = false) {
         publishJob?.cancel()
         publishJob = viewModelScope.launch {
-            delay(PUBLISH_DEBOUNCE_MS)
+            if (!immediate) delay(PUBLISH_DEBOUNCE_MS)
             val merged = mergeMessages(olderMessages, recentMessages)
             evictExpiredMedia(merged)
-            val visible = merged.filterNot { message -> isHiddenFromUi(message) }
+            val visible = merged
+                .map { message ->
+                    if (message.id in optimisticallyDeletedMessageIds) {
+                        message.copy(deleted = true, content = "")
+                    } else {
+                        message
+                    }
+                }
+                .filterNot { message -> isHiddenFromUi(message) }
             _uiState.update {
                 it.copy(
                     messages = visible,
@@ -1163,4 +1243,6 @@ data class ChatUiState(
     val isLoadingOlderMessages: Boolean = false,
     val hasMoreOlderMessages: Boolean = true,
     val errorMessage: String? = null,
+    val sendErrorMessage: String? = null,
+    val videoTooLargeMessage: String? = null,
 )

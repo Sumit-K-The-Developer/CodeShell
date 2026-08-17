@@ -1,5 +1,6 @@
 package com.codeshell.app
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,12 +9,15 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.codeshell.app.data.preferences.AppPreferences
+import com.codeshell.app.data.model.ChatInterfaceStyle
+import com.codeshell.app.data.model.CallType
 import com.codeshell.app.messaging.PendingChatNavigation
 import com.codeshell.app.messaging.PendingNewsArticle
 import com.codeshell.app.messaging.PendingSharedContent
@@ -37,29 +43,32 @@ import com.codeshell.app.navigation.CodeShellNavHost
 import com.codeshell.app.util.SecureExitGuard
 import com.codeshell.app.ui.theme.CodeShellTheme
 import com.codeshell.app.ui.version.VersionGateOverlay
+import com.codeshell.app.ui.vault.VaultAccessSession
 import com.codeshell.app.ui.version.VersionGateViewModel
 import com.codeshell.app.ui.version.rememberExitAppAction
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsResultCallback {
 
     private lateinit var appPreferences: AppPreferences
     private var hideOnHomePress = false
     private var terminateOnLock = false
-    private var secureTerminalOnly = false
+    private var secureTerminalOnly = true
     private var lockReceiverRegistered = false
+
+    /** Outgoing call requested before the platform permission activity opened. */
+    var pendingOutgoingCallType: CallType? = null
 
     /** Updated from [CodeShellNavHost] when the visible route changes. */
     var isOnTerminalScreen = false
 
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_OFF &&
-                terminateOnLock &&
-                !suppressTerminateOnLock &&
-                shouldApplySecureExit()
-            ) {
-                finishAffinity()
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                VaultAccessSession.lock()
+                if (terminateOnLock && !suppressTerminateOnLock && shouldApplySecureExit()) {
+                    finishAffinity()
+                }
             }
         }
     }
@@ -92,7 +101,13 @@ class MainActivity : ComponentActivity() {
         consumeStartupIntent(intent)
 
         setContent {
-            CodeShellTheme {
+            val chatInterfaceStyle by appPreferences.chatInterfaceStyle.collectAsStateWithLifecycle(
+                initialValue = ChatInterfaceStyle.DEFAULT,
+            )
+            CodeShellTheme(chatInterfaceStyle) {
+                LaunchedEffect(Unit) {
+                    requestNotificationPermissionOnFirstInstall()
+                }
                 val versionGateViewModel: VersionGateViewModel = viewModel()
                 val versionState by versionGateViewModel.uiState.collectAsStateWithLifecycle()
                 val exitApp = rememberExitAppAction()
@@ -140,9 +155,50 @@ class MainActivity : ComponentActivity() {
         consumeStartupIntent(intent)
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray,
+    ) {
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            applySuppressHideOnHome(false)
+            val message = if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                getString(R.string.notification_permission_enabled)
+            } else {
+                getString(R.string.notification_permission_disabled)
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun consumeStartupIntent(intent: Intent?) {
         if (consumeShareIntent(intent)) return
         consumeNotificationChatIntent(intent)
+    }
+
+    private fun requestNotificationPermissionOnFirstInstall() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+        if (preferences.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)) return
+
+        preferences.edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            // Opening the system permission dialog triggers onUserLeaveHint().
+            // Prevent the disguise's home-press exit logic from finishing us.
+            applySuppressHideOnHome(true)
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NOTIFICATION_PERMISSION_REQUEST_CODE,
+            )
+        }
     }
 
     private fun consumeShareIntent(intent: Intent?): Boolean {
@@ -313,6 +369,10 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_FROM_SECRET_CODE = "extra_from_secret_code"
+
+        private const val PREFERENCES_NAME = "codeshell_first_launch"
+        private const val NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
         /** Double-back-exit window in milliseconds. */
         private const val EXIT_BACK_WINDOW_MS = 2500L

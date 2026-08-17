@@ -13,18 +13,34 @@ object AiTutorMarkdown {
         text: String,
         baseStyle: SpanStyle = SpanStyle(),
     ): AnnotatedString {
+        // Keep the model's lightweight Markdown readable in a plain Compose
+        // Text. Normalize common heading/list variants before applying inline
+        // bold styling, so responses remain structured even when the model
+        // uses '# Heading' or '* item' instead of the requested format.
+        val normalizedText = text
+            .lineSequence()
+            .joinToString("\n") { line ->
+                val trimmed = line.trimStart()
+                when {
+                    trimmed.matches(Regex("#{1,3}\\s+.+")) ->
+                        "**${trimmed.replaceFirst(Regex("^#{1,3}\\s+"), "").trim()}**"
+                    trimmed.matches(Regex("[-*•]\\s+.+")) ->
+                        "• ${trimmed.replaceFirst(Regex("^[-*•]\\s+"), "")}" 
+                    else -> line
+                }
+            }
         return buildAnnotatedString {
             var index = 0
-            while (index < text.length) {
-                val boldRange = findBoldRange(text, index)
+            while (index < normalizedText.length) {
+                val boldRange = findBoldRange(normalizedText, index)
                 if (boldRange != null) {
                     val (delimiterLength, contentEnd) = boldRange
                     withStyle(baseStyle.copy(fontWeight = FontWeight.SemiBold)) {
-                        append(text.substring(index + delimiterLength, contentEnd))
+                        append(normalizedText.substring(index + delimiterLength, contentEnd))
                     }
                     index = contentEnd + delimiterLength
                 } else {
-                    append(text[index])
+                    append(normalizedText[index])
                     index++
                 }
             }

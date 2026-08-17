@@ -16,8 +16,17 @@ import com.codeshell.app.ui.theme.ChatDarkMutedText
 import com.codeshell.app.ui.theme.ChatDarkText
 import com.codeshell.app.ui.theme.ChatDarkTopBar
 import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.EditorGutter
+import com.codeshell.app.ui.theme.EditorSenderText
+import com.codeshell.app.ui.theme.EditorTileBorder
+import com.codeshell.app.ui.theme.EditorTileText
+import com.codeshell.app.ui.theme.IdeLightAccent
+import com.codeshell.app.ui.theme.IdeLightBackground
+import com.codeshell.app.ui.theme.IdeLightBubbleMine
+import com.codeshell.app.ui.theme.IdeLightBubbleOther
+import com.codeshell.app.ui.theme.IdeLightMutedText
+import com.codeshell.app.ui.theme.IdeLightText
+import com.codeshell.app.ui.theme.IdeLightTopBar
 import com.codeshell.app.ui.theme.EditorType
 import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.ui.theme.VintageDarkAccent
@@ -33,7 +42,9 @@ data class ChatThemeColors(
     val background: androidx.compose.ui.graphics.Color,
     val topBar: androidx.compose.ui.graphics.Color,
     val text: androidx.compose.ui.graphics.Color,
+    val senderText: androidx.compose.ui.graphics.Color = text,
     val mutedText: androidx.compose.ui.graphics.Color,
+    val tileBorder: androidx.compose.ui.graphics.Color = mutedText,
     val bubbleMine: androidx.compose.ui.graphics.Color,
     val bubbleOther: androidx.compose.ui.graphics.Color,
     val accent: androidx.compose.ui.graphics.Color,
@@ -135,6 +146,21 @@ private fun buildChatTheme(style: ChatInterfaceStyle, messageFontScale: Float): 
             compactMediaAttachments = true,
             messageFontScale = scale,
         )
+        ChatInterfaceStyle.IDE_LIGHT -> ChatTheme(
+            style = style,
+            colors = colors,
+            bubbleMaxWidth = 320.dp,
+            bubbleCornerLarge = 4.dp,
+            bubbleCornerSmall = 4.dp,
+            useAsymmetricBubbleTail = false,
+            mediaPreviewHeight = 80.dp,
+            mediaPreviewCorner = 2.dp,
+            mediaBorderWidth = 1.dp,
+            inputBarCorner = 4.dp,
+            useMonospaceText = true,
+            compactMediaAttachments = true,
+            messageFontScale = scale,
+        )
     }
 }
 
@@ -161,11 +187,22 @@ private fun chatThemeColors(style: ChatInterfaceStyle): ChatThemeColors {
         ChatInterfaceStyle.IDE -> ChatThemeColors(
             background = EditorBackground,
             topBar = TopBarBackground,
-            text = EditorDefaultText,
+            text = EditorTileText,
+            senderText = EditorSenderText,
             mutedText = EditorGutter,
+            tileBorder = EditorTileBorder,
             bubbleMine = ChatDarkBubbleMine,
             bubbleOther = EditorGutter,
             accent = EditorType,
+        )
+        ChatInterfaceStyle.IDE_LIGHT -> ChatThemeColors(
+            background = IdeLightBackground,
+            topBar = IdeLightTopBar,
+            text = IdeLightText,
+            mutedText = IdeLightMutedText,
+            bubbleMine = IdeLightBubbleMine,
+            bubbleOther = IdeLightBubbleOther,
+            accent = IdeLightAccent,
         )
     }
 }

@@ -8,6 +8,7 @@ import com.codeshell.app.data.news.NewsRegion
 import com.codeshell.app.data.news.NewsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,7 @@ class NewsViewModel(
     val uiState: StateFlow<NewsUiState> = _uiState.asStateFlow()
 
     private val fetchGeneration = AtomicInteger(0)
+    private var refreshJob: Job? = null
 
     /** Tracks (categoryId, region) pairs we've already fetched at least once. */
     private val fetchedKeys = mutableSetOf<String>()
@@ -95,7 +97,7 @@ class NewsViewModel(
 
     private fun backgroundRefresh(categoryId: String, region: NewsRegion, gen: Int) {
         _uiState.update { it.copy(isRefreshing = true) }
-        viewModelScope.launch(Dispatchers.IO) {
+        refreshJob = viewModelScope.launch(Dispatchers.IO) {
             val result = repository.fetchNews(categoryId, region, skipCache = true)
             if (gen != fetchGeneration.get()) return@launch
             result.fold(
@@ -170,7 +172,8 @@ class NewsViewModel(
         val category = _uiState.value.currentCategory
         val region = _uiState.value.currentRegion
         val gen = fetchGeneration.incrementAndGet()
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             runCatching { NewsCache.instance.clear(category, region) }
             _uiState.update {
                 it.copy(
@@ -209,6 +212,8 @@ class NewsViewModel(
 
     fun cancelRefresh() {
         fetchGeneration.incrementAndGet()
+        refreshJob?.cancel()
+        refreshJob = null
         _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
     }
 

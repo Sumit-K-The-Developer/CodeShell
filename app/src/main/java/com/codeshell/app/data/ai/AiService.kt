@@ -68,13 +68,24 @@ class AiService(
                         val json = JSONObject(body)
                         val choices = json.optJSONArray("choices") ?: return@withContext AiChatResult.Error("Empty response")
                         if (choices.length() == 0) return@withContext AiChatResult.Error("Empty response")
-                        val content = choices.optJSONObject(0)
+                        val choice = choices.optJSONObject(0)
+                        val content = choice
                             ?.optJSONObject("message")
                             ?.optString("content")
                             ?.trim()
                             .orEmpty()
                         return@withContext if (content.isBlank()) {
                             AiChatResult.Error("Empty response")
+                        } else if (choice?.optString("finish_reason") == "length") {
+                            // A structured news answer can legitimately need more
+                            // than one model segment. Continue from the exact
+                            // partial answer instead of exposing a cut-off sentence.
+                            val continuation = requestContinuation(messages, content)
+                            if (continuation.isNullOrBlank()) {
+                                AiChatResult.Success(content)
+                            } else {
+                                AiChatResult.Success("$content\n\n$continuation")
+                            }
                         } else {
                             AiChatResult.Success(content)
                         }
@@ -99,10 +110,57 @@ class AiService(
         }
     }
 
+    private fun requestContinuation(
+        messages: List<AiChatMessage>,
+        partialResponse: String,
+    ): String? {
+        return runCatching {
+            val continuationMessages = JSONArray().apply {
+                messages.forEach { message ->
+                    put(JSONObject().apply {
+                        put("role", message.role)
+                        put("content", message.content)
+                    })
+                }
+                put(JSONObject().apply {
+                    put("role", "assistant")
+                    put("content", partialResponse)
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "Continue the previous answer from exactly where it stopped. Do not repeat any text. Finish the current sentence or section and complete the answer.")
+                })
+            }
+            val continuationJson = JSONObject().apply {
+                put("model", MODEL)
+                put("temperature", 0.3)
+                put("max_tokens", CONTINUATION_TOKENS)
+                put("messages", continuationMessages)
+            }
+            val request = Request.Builder()
+                .url(GROQ_CHAT_URL)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(continuationJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string().orEmpty())
+                json.optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     companion object {
         private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
         private const val MODEL = "llama-3.1-8b-instant"
-        private const val MAX_RESPONSE_TOKENS = 400
+        private const val MAX_RESPONSE_TOKENS = 800
+        private const val CONTINUATION_TOKENS = 400
 
         private val defaultClient = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)

@@ -1,6 +1,7 @@
 package com.codeshell.app.data.ai
 
 import com.codeshell.app.BuildConfig
+import com.codeshell.app.data.model.NewsAiArticleContext
 import com.codeshell.app.ui.disguise.snippets.LearnLesson
 
 object AiPromptBuilder {
@@ -43,6 +44,14 @@ object AiPromptBuilder {
             Keep answers clear, concise, and factual. Cite sources when available.
             Prefer questions about news, current events, and general knowledge, but you may answer other questions when helpful.
 
+            Format every answer for easy scanning:
+            - Start with a short direct answer or takeaway.
+            - Organize the rest under 1-3 concise bold section headings using **Heading**.
+            - Use bullet points beginning with - for multiple facts, events, reasons, or steps.
+            - Leave a blank line between sections.
+            - For article questions, prefer sections such as **Summary**, **Key points**, and **Why it matters** when relevant; omit sections that do not add value.
+            - Do not return one long paragraph, and do not use a Markdown table unless the user specifically asks for one.
+
             $RESPONSE_LENGTH_RULES
 
             $CREATOR_CONTEXT
@@ -62,23 +71,53 @@ object AiPromptBuilder {
         """.trimIndent()
     }
 
-    fun systemPrompt(topicLabel: String, lesson: LearnLesson?, generic: Boolean = false): String {
+    fun systemPrompt(
+        topicLabel: String,
+        lesson: LearnLesson?,
+        generic: Boolean = false,
+        articleContext: NewsAiArticleContext? = null,
+    ): String {
         if (generic || topicLabel.isBlank()) {
-            return genericSystemPrompt()
+            return appendArticleContext(genericSystemPrompt(), articleContext)
         }
 
         val rules = flavorRules(topicLabel)
         val lessonContext = lesson?.let { compressLesson(it) }.orEmpty()
         return if (lessonContext.isBlank()) {
-            rules
+            appendArticleContext(rules, articleContext)
         } else {
-            """
+            appendArticleContext("""
             $rules
 
             Lesson reference (use this as ground truth when relevant):
             $lessonContext
-            """.trimIndent()
+            """.trimIndent(), articleContext)
         }
+    }
+
+    private fun appendArticleContext(prompt: String, article: NewsAiArticleContext?): String {
+        if (article == null) return prompt
+        val warning = if (!article.fullArticleFetched && article.cachedText.isNotBlank()) {
+            "The full article could not be fetched. Use the cached news-card text, and clearly mention this limitation."
+        } else if (!article.fullArticleFetched) {
+            "The full article could not be fetched and no cached article text is available. Say that you cannot answer from the article."
+        } else {
+            "Use the full publisher-page text as the primary source."
+        }
+        return """
+        $prompt
+
+        Article context:
+        This chat can answer general questions as well as questions about this article. For general questions, answer directly and do not force the article context into the response. Use the article context only when it is relevant to the user's question.
+        Title: ${article.title}
+        Source: ${article.sourceName}
+        Published: ${article.publishedAt}
+        URL: ${article.url}
+        $warning
+
+        Article text:
+        ${article.cachedText.take(MAX_LESSON_CHARS)}
+        """.trimIndent()
     }
 
     private fun genericSystemPrompt(): String = flavorRules("")

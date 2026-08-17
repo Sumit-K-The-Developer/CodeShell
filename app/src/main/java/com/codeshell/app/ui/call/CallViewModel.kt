@@ -410,6 +410,12 @@ class CallViewModel(
         }
     }
 
+    fun reportLocalPermissionRevoked() {
+        if (_uiState.value.phase == CallUiPhase.InCall) {
+            failCall(END_REASON_LOCAL_PERMISSION_DENIED)
+        }
+    }
+
     fun bindLocalRenderer(renderer: SurfaceViewRenderer) {
         pendingLocalRenderer = renderer
         webRtc?.bindLocalRenderer(renderer)
@@ -460,7 +466,10 @@ class CallViewModel(
                     ringTimeoutJob?.cancel()
                     _uiState.update { it.copy(phase = CallUiPhase.Connecting) }
                     startProximityControl()
-                    ensureWebRtc()
+                    if (!ensureWebRtc()) {
+                        failCall(END_REASON_CAMERA_START_FAILED)
+                        return
+                    }
                     createAndSendOffer(call.id)
                 }
             }
@@ -469,7 +478,10 @@ class CallViewModel(
                     handledOffer = true
                     _uiState.update { it.copy(phase = CallUiPhase.Connecting) }
                     startProximityControl()
-                    ensureWebRtc()
+                    if (!ensureWebRtc()) {
+                        failCall(END_REASON_CAMERA_START_FAILED)
+                        return
+                    }
                     handleOffer(call)
                 }
                 if (isCaller && call.answer != null && !handledAnswer) {
@@ -520,11 +532,11 @@ class CallViewModel(
         }
     }
 
-    private suspend fun ensureWebRtc() {
-        if (webRtc != null) return
-        val userId = currentUserId ?: return
-        val callId = _uiState.value.callId ?: return
-        webRtc = WebRtcCallEngine(
+    private suspend fun ensureWebRtc(): Boolean {
+        if (webRtc != null) return true
+        val userId = currentUserId ?: return false
+        val callId = _uiState.value.callId ?: return false
+        val engine = WebRtcCallEngine(
             context = getApplication(),
             callType = activeCallType,
             onIceCandidate = { candidate ->
@@ -564,10 +576,24 @@ class CallViewModel(
                     }
                 }
             },
-        ).also { engine ->
-            engine.createPeerConnection()
-            pendingLocalRenderer?.let(engine::bindLocalRenderer)
-            pendingRemoteRenderer?.let(engine::bindRemoteRenderer)
+        )
+        if (activeCallType == CallType.VIDEO) {
+            var ready = engine.ensureCameraCapture()
+            repeat(5) {
+                if (ready) return@repeat
+                delay(100)
+                ready = engine.ensureCameraCapture()
+            }
+            if (!ready) {
+                engine.dispose()
+                return false
+            }
+        }
+        webRtc = engine
+        engine.createPeerConnection()
+        pendingLocalRenderer?.let(engine::bindLocalRenderer)
+        pendingRemoteRenderer?.let(engine::bindRemoteRenderer)
+        run {
             iceListener?.remove()
             iceListener = callRepository.observeIceCandidates(callId, userId) { data ->
                 engine.addIceCandidate(
@@ -579,6 +605,7 @@ class CallViewModel(
                 )
             }
         }
+        return true
     }
 
     private suspend fun createAndSendOffer(callId: String) {
@@ -798,6 +825,8 @@ class CallViewModel(
         val res = when (reason) {
             END_REASON_BUSY -> R.string.call_user_busy
             END_REASON_PERMISSION_DENIED -> R.string.call_permission_denied_remote
+            END_REASON_LOCAL_PERMISSION_DENIED -> R.string.call_permission_denied_local
+            END_REASON_CAMERA_START_FAILED -> R.string.call_camera_start_failed
             END_REASON_NETWORK_FAILED -> R.string.call_network_failed
             else -> if (activeCallType == CallType.VIDEO) {
                 R.string.video_call_connect_failed
@@ -918,6 +947,8 @@ class CallViewModel(
         private const val END_REASON_MISSED_TIMEOUT = "missed_timeout"
         private const val END_REASON_BUSY = "busy"
         private const val END_REASON_PERMISSION_DENIED = "permission_denied"
+        private const val END_REASON_LOCAL_PERMISSION_DENIED = "local_permission_denied"
+        private const val END_REASON_CAMERA_START_FAILED = "camera_start_failed"
         private const val END_REASON_NETWORK_FAILED = "network_failed"
         private const val END_REASON_WEBRTC_FAILED = "webrtc_failed"
     }

@@ -32,6 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.R
 import com.codeshell.app.messaging.PendingNewsArticle
+import com.codeshell.app.messaging.PendingNewsArticleRestore
+import com.codeshell.app.data.local.NewsAiConversationRepository
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.news.NewsArticle
 import com.codeshell.app.data.news.NewsLanguageFilter
@@ -50,6 +52,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun DisguiseLearnScreen(
     onSecretEntry: () -> Unit,
+    onOpenNewsAi: (NewsArticle) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -70,6 +73,7 @@ fun DisguiseLearnScreen(
     DisguiseLearnContent(
         manifest = loadedManifest,
         onSecretEntry = onSecretEntry,
+        onOpenNewsAi = onOpenNewsAi,
         modifier = modifier,
     )
 }
@@ -79,6 +83,7 @@ fun DisguiseLearnScreen(
 private fun DisguiseLearnContent(
     manifest: LearnManifest,
     onSecretEntry: () -> Unit,
+    onOpenNewsAi: (NewsArticle) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -86,6 +91,9 @@ private fun DisguiseLearnContent(
     val secretChipDoubleTapEnabled by appPreferences.secretChipDoubleTapEnabled
         .collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
+    val newsAiConversationRepository = remember {
+        NewsAiConversationRepository(context.applicationContext)
+    }
 
     val topics = manifest.topics
     val defaultTopicId = topics.firstOrNull()?.id.orEmpty()
@@ -104,6 +112,7 @@ private fun DisguiseLearnContent(
     // Hoisted here so it persists across category (HorizontalPager) changes
     var languageFilter by rememberSaveable { mutableStateOf(NewsLanguageFilter.ENGLISH) }
     val newsViewModel: NewsViewModel = viewModel()
+    val newsUiState by newsViewModel.uiState.collectAsStateWithLifecycle()
 
     // Re-fire on every set() call so a notification tap on an already-open screen
     // also navigates to the article (not just on the first composition).
@@ -115,6 +124,11 @@ private fun DisguiseLearnContent(
             isInternational = pending.regionCountryCode != "in"
             pendingArticleUrl = pending.url
         }
+    }
+
+    val pendingRestoreVersion by PendingNewsArticleRestore.version.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingRestoreVersion) {
+        PendingNewsArticleRestore.consume()?.let { pendingArticleUrl = it }
     }
 
     // Fetch news when category or region changes
@@ -161,7 +175,16 @@ private fun DisguiseLearnContent(
                         },
                         regionToggleChecked = if (isNewsFlavor) isInternational else null,
                         onRegionToggleChange = if (isNewsFlavor) { checked -> isInternational = checked } else null,
-                        onNewsRefresh = if (isNewsFlavor) ({ newsViewModel.refresh() }) else null,
+                        onNewsRefresh = if (isNewsFlavor) {
+                            {
+                                if (newsUiState.isRefreshing) newsViewModel.cancelRefresh()
+                                else scope.launch {
+                                    newsAiConversationRepository.clearAll()
+                                    newsViewModel.refresh()
+                                }
+                            }
+                        } else null,
+                        isNewsRefreshing = isNewsFlavor && newsUiState.isRefreshing,
                     )
                     HorizontalDivider(color = EditorDefaultText.copy(alpha = 0.1f))
                     TopicTopBar(
@@ -193,6 +216,9 @@ private fun DisguiseLearnContent(
                                 openedUrl = url
                                 openedTitle = article.title
                             }
+                        },
+                        onAskAi = { article ->
+                            onOpenNewsAi(article)
                         },
                         initialArticleUrl = pendingArticleUrl,
                         onInitialArticleConsumed = { pendingArticleUrl = null },

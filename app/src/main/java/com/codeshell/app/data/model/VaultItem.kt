@@ -13,6 +13,7 @@ data class VaultItem(
     val contentVersion: Long = 0L,
     val sourceChatId: String? = null,
     val sourceMessageId: String? = null,
+    val importedFromGallery: Boolean = false,
 ) {
     val isVideo: Boolean
         get() = mimeType.startsWith("video/") || mimeTypeForFileName(fileName).startsWith("video/")

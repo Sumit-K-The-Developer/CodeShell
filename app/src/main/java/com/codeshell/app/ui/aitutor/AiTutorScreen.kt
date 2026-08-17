@@ -1,6 +1,7 @@
 package com.codeshell.app.ui.aitutor
 
 import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,17 +17,22 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,7 +51,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -53,12 +61,14 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.R
 import com.codeshell.app.data.model.AiTutorEntrySource
 import com.codeshell.app.data.model.AiTutorMessage
 import com.codeshell.app.data.model.AiTutorMessageRole
+import com.codeshell.app.data.model.NewsAiArticleContext
 import com.codeshell.app.util.NetworkConnectivity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,12 +78,17 @@ fun AiTutorScreen(
     topicLabel: String,
     entrySource: AiTutorEntrySource,
     welcomeDigits: String,
+    articleContext: NewsAiArticleContext? = null,
     onNavigateBack: () -> Unit,
 ) {
+    BackHandler(onBack = onNavigateBack)
     val context = LocalContext.current
     val app = context.applicationContext as Application
+    val articleKey = articleContext?.url?.takeIf { it.isNotBlank() }
+        ?.let { "article-${it.hashCode()}" }
+        ?: "no-article"
     val viewModel: AiTutorViewModel = viewModel(
-        key = "ai-tutor-$topicId-$entrySource-$welcomeDigits",
+        key = "ai-tutor-$topicId-$entrySource-$welcomeDigits-$articleKey",
     ) {
         AiTutorViewModel(
             application = app,
@@ -81,6 +96,7 @@ fun AiTutorScreen(
             topicLabel = topicLabel,
             entrySource = entrySource,
             welcomeDigits = welcomeDigits,
+            articleContext = articleContext,
         )
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -90,6 +106,19 @@ fun AiTutorScreen(
         ?.displayedContent
         ?.length ?: 0
     val isFollowingGeneration = uiState.isLoading || uiState.isTypingAnimation
+    val articlePrompts = if (entrySource == AiTutorEntrySource.NEWS_ARTICLE &&
+        uiState.messages.none { it.role == AiTutorMessageRole.USER } &&
+        !isFollowingGeneration
+    ) {
+        listOf(
+            "Summarise this article",
+            "Give me the key points",
+            "Explain this simply",
+            "What context is missing?",
+        )
+    } else {
+        emptyList()
+    }
 
     val scrollTargetIndex by remember {
         derivedStateOf {
@@ -119,6 +148,7 @@ fun AiTutorScreen(
     val title = when (entrySource) {
         AiTutorEntrySource.DISGUISE,
         AiTutorEntrySource.BOT -> stringResource(R.string.ai_tutor_title_assistant)
+        AiTutorEntrySource.NEWS_ARTICLE -> stringResource(R.string.ai_tutor_news_title)
         AiTutorEntrySource.FAB -> topicLabel
     }
 
@@ -170,6 +200,8 @@ fun AiTutorScreen(
                 isTypingAnimation = uiState.isTypingAnimation,
                 onValueChange = viewModel::onInputChange,
                 onSend = viewModel::sendMessage,
+                quickPrompts = articlePrompts,
+                onQuickPrompt = viewModel::sendArticlePrompt,
                 onStop = viewModel::stopGeneration,
             )
         },
@@ -180,6 +212,25 @@ fun AiTutorScreen(
                 .padding(innerPadding),
         ) {
             AiTutorOfflineBanner()
+            uiState.articleFetchWarning?.let { warning ->
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AiTutorColors.TextPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AiTutorColors.ErrorBackground)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (uiState.articleFetchComplete) {
+                Text(
+                    text = "Fetched",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF16A34A),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
             if (uiState.errorMessage != null) {
                 AiTutorErrorBanner(
                     errorMessage = uiState.errorMessage.orEmpty(),
@@ -280,10 +331,24 @@ private fun AiTutorWelcomeHeader(
                 }
             }
         }
+        AiTutorEntrySource.NEWS_ARTICLE -> buildAnnotatedString {
+            withStyle(
+                AiTutorTypography.WelcomeTitle.toSpanStyle().copy(
+                    color = AiTutorColors.TextPrimary,
+                ),
+            ) {
+                append(topicLabel.ifBlank { "Article" })
+            }
+        }
     }
 
     Text(
         text = annotatedText,
+        style = if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) {
+            AiTutorTypography.WelcomeTitle.copy(lineHeight = 56.sp)
+        } else {
+            AiTutorTypography.WelcomeTitle
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 16.dp),
@@ -312,27 +377,53 @@ private fun AiTutorMessageBubble(message: AiTutorMessage) {
             AnnotatedString(bubbleText)
         }
     }
+    val clipboardManager = LocalClipboardManager.current
 
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Text(
-            text = renderedText,
-            modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .then(
-                    if (borderColor != null) {
-                        Modifier.border(1.dp, borderColor, RoundedCornerShape(16.dp))
-                    } else {
-                        Modifier
-                    },
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isAssistant) Arrangement.Start else Arrangement.End,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            SelectionContainer(
+                modifier = if (isAssistant) Modifier.weight(1f) else Modifier.fillMaxWidth(0.88f),
+            ) {
+                Text(
+                    text = renderedText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (borderColor != null) {
+                                Modifier.border(1.dp, borderColor, RoundedCornerShape(16.dp))
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .background(background, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
                 )
-                .background(background, RoundedCornerShape(16.dp))
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
-        )
+            }
+            if (isAssistant && !message.isTyping && message.content.isNotBlank()) {
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(message.content))
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy response",
+                        tint = AiTutorColors.TextSecondary,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -370,6 +461,8 @@ private fun AiTutorInputBar(
     isTypingAnimation: Boolean,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
+    quickPrompts: List<String> = emptyList(),
+    onQuickPrompt: (String) -> Unit = {},
     onStop: () -> Unit,
 ) {
     val isBusy = isLoading || isTypingAnimation
@@ -380,6 +473,22 @@ private fun AiTutorInputBar(
             .navigationBarsPadding()
             .imePadding(),
     ) {
+        if (quickPrompts.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 12.dp, top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                quickPrompts.forEach { prompt ->
+                    AssistChip(
+                        onClick = { onQuickPrompt(prompt) },
+                        label = { Text(prompt, color = Color.White) },
+                    )
+                }
+            }
+        }
         HorizontalDivider(color = AiTutorColors.Divider)
         Row(
             modifier = Modifier

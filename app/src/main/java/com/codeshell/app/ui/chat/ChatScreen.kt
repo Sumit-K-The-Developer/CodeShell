@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
@@ -57,6 +59,7 @@ import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +69,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,6 +87,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -91,11 +97,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -104,8 +112,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import androidx.core.content.FileProvider
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -114,6 +127,7 @@ import com.codeshell.app.BuildConfig
 import com.codeshell.app.MainActivity
 import com.codeshell.app.R
 import com.codeshell.app.data.model.CallType
+import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.model.ChatMessage
 import com.codeshell.app.data.model.MessageType
 import com.codeshell.app.data.model.sessionLogAlignAsMine
@@ -131,6 +145,7 @@ import com.codeshell.app.ui.theme.OnlineGreen
 import com.codeshell.app.ui.disguise.LearningWebView
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
 import com.codeshell.app.ui.util.TerminalInactivityEffect
+import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.ui.components.MediaCropDialog
 import com.codeshell.app.util.MediaImageLoader
 import com.codeshell.app.util.MediaPreloadCache
@@ -138,11 +153,15 @@ import com.codeshell.app.util.formatMessageTime
 import com.codeshell.app.util.findActivity
 import android.app.Application
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -153,6 +172,20 @@ import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
+private class PendingPermissionHolder {
+    var action: (() -> Unit)? = null
+    var deniedMessage: String? = null
+    var callType: CallType? = null
+    var request: List<String>? = null
+
+    fun clear() {
+        action = null
+        deniedMessage = null
+        callType = null
+        request = null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -161,13 +194,17 @@ fun ChatScreen(
     onNavigateToLearning: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMedia: (type: String, url: String, fileName: String?, messageId: String) -> Unit,
+    pauseInactivity: Boolean = false,
 ) {
     val app = LocalContext.current.applicationContext as Application
     val context = LocalContext.current
     val viewModel: ChatViewModel = viewModel(key = chatId) { ChatViewModel(app, chatId) }
+    val vaultViewModel: VaultViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val composeView = LocalView.current
     val activity = context.findActivity() as MainActivity
     val callViewModel: CallViewModel = viewModel(viewModelStoreOwner = activity) { CallViewModel(app) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val callUiState by callViewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val imageLoader = remember { MediaImageLoader.get(context) }
@@ -177,6 +214,7 @@ fun ChatScreen(
     var externalMediaFlowActive by remember { mutableStateOf(false) }
     var draftToCrop by remember { mutableStateOf<DraftMedia?>(null) }
     var activityGeneration by remember { mutableIntStateOf(0) }
+    var inputBarHeightPx by remember(chatId) { mutableIntStateOf(0) }
     var showClearDialog by remember { mutableStateOf(false) }
     var showRemoveDialog by remember { mutableStateOf(false) }
     var showBlockDialog by remember { mutableStateOf(false) }
@@ -191,14 +229,69 @@ fun ChatScreen(
     val canEditSelection = viewModel.editableSelectedMessage() != null
     var pendingDeniedMessage by remember { mutableStateOf<String?>(null) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingCallType by remember { mutableStateOf<CallType?>(null) }
+    var permissionDialogMessage by remember { mutableStateOf<String?>(null) }
+    var permissionDialogShowSettings by remember { mutableStateOf(false) }
+    var pendingPermissionRequest by remember { mutableStateOf<List<String>?>(null) }
+    val pendingPermission = remember { PendingPermissionHolder() }
+    var permissionResultVersion by remember { mutableIntStateOf(0) }
+    var permissionResultGranted by remember { mutableStateOf<Boolean?>(null) }
+    var restoreChatPositionOnResume by rememberSaveable(chatId) { mutableStateOf(false) }
+    var savedChatFirstVisibleIndex by rememberSaveable(chatId) { mutableIntStateOf(-1) }
+    var savedChatFirstVisibleOffset by rememberSaveable(chatId) { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && pendingPermissionRequest != null) {
+                permissionResultGranted = null
+                permissionResultVersion++
+            }
+            if (event == Lifecycle.Event.ON_RESUME && restoreChatPositionOnResume) {
+                scope.launch {
+                    // The destination can resume before LazyColumn has
+                    // rebuilt its items. Wait for the saved anchor to exist,
+                    // then restore the exact viewport position.
+                    repeat(120) {
+                        withFrameNanos { }
+                        val totalItems = listState.layoutInfo.totalItemsCount
+                        if (savedChatFirstVisibleIndex in 0 until totalItems) {
+                            listState.scrollToItem(
+                                index = savedChatFirstVisibleIndex,
+                                scrollOffset = savedChatFirstVisibleOffset,
+                            )
+                            restoreChatPositionOnResume = false
+                            return@launch
+                        }
+                    }
+                    restoreChatPositionOnResume = false
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(uiState.errorMessage) {
         val message = uiState.errorMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.dismissError()
+    }
+
+    val videoTooLargeMessage = uiState.videoTooLargeMessage
+    if (videoTooLargeMessage != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissVideoTooLargeDialog,
+            title = { Text(stringResource(R.string.video_output)) },
+            text = { Text(videoTooLargeMessage) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissVideoTooLargeDialog) {
+                    Text("OK")
+                }
+            },
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -209,6 +302,48 @@ fun ChatScreen(
 
     fun setSuppressHideOnHome(suppress: Boolean) {
         activity.applySuppressHideOnHome(suppress)
+    }
+
+    fun captureVisibleChatPageToVault() {
+        val width = composeView.width
+        val height = composeView.height
+        if (width <= 0 || height <= 0) {
+            scope.launch { snackbarHostState.showSnackbar("Could not capture chat") }
+            return
+        }
+        val screenshotFile = File(context.cacheDir, "chat_screenshot_${System.currentTimeMillis()}.jpg")
+        runCatching {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            composeView.draw(Canvas(bitmap))
+            screenshotFile.outputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output))
+            }
+            bitmap.recycle()
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                screenshotFile,
+            )
+            vaultViewModel.saveToVaultFromUri(
+                uri = uri,
+                fileName = "chat_screenshot.jpg",
+                mimeType = "image/jpeg",
+                deleteSource = true,
+            ) { result ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        if (result.isSuccess) "Saved to Vault" else "Could not save screenshot to Vault",
+                    )
+                }
+            }
+        }.onFailure { error ->
+            screenshotFile.delete()
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    "Could not capture chat: ${error.message ?: "unknown error"}",
+                )
+            }
+        }
     }
 
     LaunchedEffect(chatId, uiState.currentUserId, uiState.otherUserId, uiState.otherDisplayName) {
@@ -261,6 +396,22 @@ fun ChatScreen(
         activity.suppressTerminateOnLock = isCallActive
     }
 
+    LaunchedEffect(callUiState.phase, callUiState.callType) {
+        if (callUiState.phase == CallUiPhase.InCall && callUiState.callType == CallType.VIDEO) {
+            while (true) {
+                val cameraGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!cameraGranted) {
+                    callViewModel.reportLocalPermissionRevoked()
+                    break
+                }
+                kotlinx.coroutines.delay(1_000L)
+            }
+        }
+    }
+
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) activityGeneration++
     }
@@ -302,6 +453,7 @@ fun ChatScreen(
         lastMessageId,
         blocked = uiState.messageSelectionMode ||
             isCallActive ||
+            pauseInactivity ||
             pendingAction != null ||
             showClearDialog ||
             showBlockDialog ||
@@ -312,11 +464,11 @@ fun ChatScreen(
     )
 
     val visualMediaPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
-        uri?.let(viewModel::addPickedMediaDraft)
+        uris.forEach(viewModel::addPickedMediaDraft)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         externalMediaFlowActive = false
@@ -335,12 +487,14 @@ fun ChatScreen(
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
         if (success) cameraUri?.let(viewModel::addPickedMediaDraft)
+        else scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.camera_capture_failed)) }
         cameraUri = null
     }
     val videoCaptureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         externalMediaFlowActive = false
         setSuppressHideOnHome(false)
         if (success) videoCaptureUri?.let(viewModel::addPickedMediaDraft)
+        else scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.video_capture_failed)) }
         videoCaptureUri = null
     }
 
@@ -368,25 +522,70 @@ fun ChatScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         setSuppressHideOnHome(false)
-        if (results.values.all { it }) {
-            pendingAction?.invoke()
-        } else {
-            if (isCallActive) {
-                callViewModel.reportPermissionDenied()
+        permissionResultGranted = results.values.all { it }
+        permissionResultVersion++
+    }
+
+    LaunchedEffect(pendingPermissionRequest, permissionResultVersion) {
+        val request = pendingPermissionRequest ?: return@LaunchedEffect
+        repeat(30) {
+            val stillMissing = request.filter {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
             }
-            pendingDeniedMessage?.let { message ->
-                scope.launch {
-                    snackbarHostState.showSnackbar(message)
+            if (stillMissing.isEmpty()) {
+                val action = pendingPermission.action
+                val callType = activity.pendingOutgoingCallType ?: pendingPermission.callType
+                pendingPermission.clear()
+                pendingPermissionRequest = null
+                pendingAction = null
+                pendingDeniedMessage = null
+                pendingCallType = null
+                activity.pendingOutgoingCallType = null
+
+                if (callType != null) {
+                    callViewModel.startOutgoingCall(callType)
+                    kotlinx.coroutines.delay(3_000L)
+                    if (callViewModel.uiState.value.phase == CallUiPhase.Hidden) {
+                        snackbarHostState.showSnackbar(
+                            "Permission granted. Tap the call button again to start the call."
+                        )
+                    }
+                } else {
+                    action?.invoke()
                 }
+                return@LaunchedEffect
             }
+
+            if (permissionResultGranted == false) {
+                val deniedMessage = pendingPermission.deniedMessage
+                if (isCallActive) callViewModel.reportPermissionDenied()
+                pendingPermission.clear()
+                pendingPermissionRequest = null
+                pendingAction = null
+                pendingDeniedMessage = null
+                pendingCallType = null
+                activity.pendingOutgoingCallType = null
+                deniedMessage?.let { snackbarHostState.showSnackbar(it) }
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(100L)
         }
+
+        val deniedMessage = pendingPermission.deniedMessage
+        pendingPermission.clear()
+        pendingPermissionRequest = null
         pendingAction = null
         pendingDeniedMessage = null
+        pendingCallType = null
+        activity.pendingOutgoingCallType = null
+        deniedMessage?.let { snackbarHostState.showSnackbar(it) }
     }
 
     fun runWithPermissions(
         required: List<String>,
         deniedMessage: String? = null,
+        callType: CallType? = null,
         action: () -> Unit,
     ) {
         val missing = required.filter {
@@ -396,11 +595,78 @@ fun ChatScreen(
         if (missing.isEmpty()) {
             action()
         } else {
+            permissionResultGranted = null
+            pendingCallType = callType
             pendingAction = action
             pendingDeniedMessage = deniedMessage
-            setSuppressHideOnHome(true)
-            permissionLauncher.launch(missing.toTypedArray())
+            pendingPermission.action = action
+            pendingPermission.deniedMessage = deniedMessage
+            pendingPermission.callType = callType
+            activity.pendingOutgoingCallType = callType
+            val prefs = context.getSharedPreferences("permission_state", Context.MODE_PRIVATE)
+            val previouslyRequested = missing.any { prefs.getBoolean(it, false) }
+            val permanentlyDenied = previouslyRequested && missing.any {
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, it)
+            }
+            pendingPermissionRequest = missing
+            pendingPermission.request = missing
+            if (permanentlyDenied) {
+                permissionDialogMessage = "Permission is blocked. Open system settings to allow it for CodeShell."
+                permissionDialogShowSettings = true
+            } else if (missing.any { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }) {
+                permissionDialogMessage = deniedMessage ?: "This permission is needed for this action."
+                permissionDialogShowSettings = false
+            } else {
+                prefs.edit().putBoolean(missing.first(), true).apply()
+                setSuppressHideOnHome(true)
+                permissionLauncher.launch(missing.toTypedArray())
+            }
         }
+    }
+
+    permissionDialogMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = {
+                permissionDialogMessage = null
+                pendingPermissionRequest = null
+                pendingAction = null
+                pendingDeniedMessage = null
+                pendingCallType = null
+                pendingPermission.clear()
+                activity.pendingOutgoingCallType = null
+            },
+            title = { Text("Permission needed") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (permissionDialogShowSettings) {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        })
+                    } else {
+                        val request = pendingPermission.request ?: pendingPermissionRequest
+                        if (request != null) {
+                            context.getSharedPreferences("permission_state", Context.MODE_PRIVATE)
+                                .edit().putBoolean(request.first(), true).apply()
+                            setSuppressHideOnHome(true)
+                            permissionLauncher.launch(request.toTypedArray())
+                        }
+                    }
+                    permissionDialogMessage = null
+                }) { Text(if (permissionDialogShowSettings) "Open settings" else "Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    permissionDialogMessage = null
+                    pendingPermissionRequest = null
+                    pendingAction = null
+                    pendingDeniedMessage = null
+                    pendingCallType = null
+                    pendingPermission.clear()
+                    activity.pendingOutgoingCallType = null
+                }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 
     val screenShareLauncher = rememberLauncherForActivityResult(
@@ -426,6 +692,7 @@ fun ChatScreen(
         runWithPermissions(
             required = audioPermissions,
             deniedMessage = context.getString(R.string.call_permission_denied),
+            callType = CallType.VOICE,
         ) {
             callViewModel.startOutgoingCall(CallType.VOICE)
         }
@@ -435,6 +702,7 @@ fun ChatScreen(
         runWithPermissions(
             required = videoCapturePermissions,
             deniedMessage = context.getString(R.string.call_camera_permission_denied),
+            callType = CallType.VIDEO,
         ) {
             callViewModel.startOutgoingCall(CallType.VIDEO)
         }
@@ -472,6 +740,7 @@ fun ChatScreen(
 
     val chatListEntries = uiState.listEntries
     var animatedMessageIds by remember(chatId) { mutableStateOf<Set<String>>(emptySet()) }
+    var highlightedMessageId by remember(chatId) { mutableStateOf<String?>(null) }
     LaunchedEffect(chatId) {
         animatedMessageIds = uiState.messages.map { it.id }.toSet()
     }
@@ -482,33 +751,124 @@ fun ChatScreen(
         }
     }
 
-    val bottomScrollTrigger by remember {
-        derivedStateOf {
-            uiState.messages.lastOrNull()?.id to uiState.isOtherTyping
-        }
-    }
-
     var userScrolledUp by remember(chatId) { mutableStateOf(false) }
-    var needsInitialScroll by remember(chatId) { mutableStateOf(true) }
+    var hasNewMessagesWhileScrolled by remember(chatId) { mutableStateOf(false) }
+    var lastObservedLatestMessageId by remember(chatId) { mutableStateOf<String?>(null) }
+    var needsInitialScroll by rememberSaveable(chatId) { mutableStateOf(true) }
     var lastAutoScrolledMessageId by remember(chatId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(listState, chatId) {
         snapshotFlow {
-            listState.firstVisibleItemIndex > 2 ||
-                (listState.firstVisibleItemIndex == 2 && listState.firstVisibleItemScrollOffset > 32)
+            listState.isScrollInProgress to (
+                listState.firstVisibleItemIndex > 2 ||
+                    (listState.firstVisibleItemIndex == 2 && listState.firstVisibleItemScrollOffset > 32)
+                )
         }
             .distinctUntilChanged()
-            .collect { scrolledUp -> userScrolledUp = scrolledUp }
+            .collect { (isScrolling, scrolledUp) ->
+                // Keyboard/inset changes can relayout the list without any
+                // user gesture. Only a real scroll gesture may switch the
+                // viewport into the manually-scrolled state.
+                if (isScrolling) userScrolledUp = scrolledUp
+            }
+    }
+
+    LaunchedEffect(uiState.messages.lastOrNull()?.id) {
+        val latestId = uiState.messages.lastOrNull()?.id ?: return@LaunchedEffect
+        val previousId = lastObservedLatestMessageId
+        if (previousId != null && previousId != latestId && userScrolledUp) {
+            hasNewMessagesWhileScrolled = true
+        }
+        lastObservedLatestMessageId = latestId
+    }
+
+    LaunchedEffect(userScrolledUp) {
+        if (!userScrolledUp) hasNewMessagesWhileScrolled = false
     }
 
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
-    val loadingExtra = if (uiState.isLoadingOlderMessages) 1 else 0
+    val inputBarBottomPadding = with(density) { inputBarHeightPx.toDp() }
+    // Keep the viewport geometry stable while the user scrolls. Removing this
+    // padding when the scroll crosses the "scrolled up" threshold makes the
+    // LazyColumn remeasure and visibly jumps the content under the finger.
+    val messageViewportBottomPadding = inputBarBottomPadding
     val typingExtra = 1
-    val listItemCount = uiState.pendingUploads.size + chatListEntries.size + loadingExtra + typingExtra
+    val listItemCount = uiState.pendingUploads.size + chatListEntries.size + typingExtra
 
-    LaunchedEffect(bottomScrollTrigger, listItemCount) {
-        if (listItemCount > 0 && !userScrolledUp) {
+    fun focusTaggedMessage(messageId: String) {
+        val entryIndex = chatListEntries.indexOfFirst { entry ->
+            entry is ChatListEntry.Message && entry.message.id == messageId
+        }
+        if (entryIndex < 0) return
+
+        val targetIndex = typingExtra + uiState.pendingUploads.size + entryIndex
+        scope.launch {
+            // First make the target part of the laid-out viewport. Do not use
+            // a fixed scroll offset here: reverseLayout, message height, IME
+            // insets, and the input bar all change the actual position.
+            listState.animateScrollToItem(targetIndex)
+            // Wait for the lazy list to publish the new item coordinates
+            // before measuring them. Without this frame boundary, layoutInfo
+            // can still describe the pre-scroll viewport.
+            withFrameNanos { }
+
+            // animateScrollToItem only guarantees that the item is visible;
+            // it may still be tucked against an edge (or below the top bar).
+            // Correct using the rendered item's real bounds. Repeating this a
+            // few times handles remeasurement of unusually tall message rows.
+            repeat(6) {
+                val layoutInfo = listState.layoutInfo
+                val target = layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                    item.key == messageId
+                }
+                if (target == null) {
+                    // A remeasurement can briefly remove the target from the
+                    // visible-item snapshot. Re-anchor it and try again.
+                    listState.animateScrollToItem(targetIndex)
+                    withFrameNanos { }
+                    return@repeat
+                }
+                val viewportCenter = (layoutInfo.viewportStartOffset +
+                    layoutInfo.viewportEndOffset) / 2f
+                val targetCenter = target.offset + target.size / 2f
+                val delta = targetCenter - viewportCenter
+                if (abs(delta) < 8f) return@repeat
+
+                val distanceBefore = abs(delta)
+                listState.animateScrollBy(delta)
+                withFrameNanos { }
+
+                // A reverse-layout list can interpret the scroll direction
+                // opposite to the physical screen direction. Verify the
+                // result and undo/reverse a correction if it moved farther
+                // from the desired center.
+                val corrected = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                    item.key == messageId
+                }
+                if (corrected != null) {
+                    val correctedCenter = corrected.offset + corrected.size / 2f
+                    val correctedDistance = abs(
+                        correctedCenter -
+                            (listState.layoutInfo.viewportStartOffset +
+                                listState.layoutInfo.viewportEndOffset) / 2f,
+                    )
+                    if (correctedDistance > distanceBefore + 4f) {
+                        listState.animateScrollBy(-2f * delta)
+                        withFrameNanos { }
+                    }
+                }
+            }
+            highlightedMessageId = messageId
+            delay(2_000L)
+            if (highlightedMessageId == messageId) highlightedMessageId = null
+        }
+    }
+
+    val imeVisible = imeBottom > 0
+
+    LaunchedEffect(uiState.messages.lastOrNull()?.id, imeVisible) {
+        if (!restoreChatPositionOnResume && listItemCount > 0 && !userScrolledUp) {
             val latestMessageId = uiState.messages.lastOrNull()?.id
             if (needsInitialScroll) {
                 listState.scrollToItem(0)
@@ -516,21 +876,10 @@ fun ChatScreen(
                 lastAutoScrolledMessageId = latestMessageId
             } else if (latestMessageId != null && latestMessageId != lastAutoScrolledMessageId) {
                 lastAutoScrolledMessageId = latestMessageId
-                val latestMessage = uiState.messages.lastOrNull()
-                if (latestMessage?.senderId == uiState.currentUserId) {
-                    listState.animateScrollToItem(0)
-                } else {
-                    listState.scrollToItem(0)
-                }
-            } else if (uiState.isOtherTyping) {
-                listState.scrollToItem(0)
+                listState.animateScrollToItem(0)
+            } else if (imeVisible) {
+                listState.animateScrollToItem(0)
             }
-        }
-    }
-
-    LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && listItemCount > 0 && !userScrolledUp) {
-            listState.scrollToItem(0)
         }
     }
 
@@ -698,7 +1047,7 @@ fun ChatScreen(
         containerColor = chatColors.background,
         contentWindowInsets = WindowInsets.statusBars,
         modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {},
         topBar = {
             AnimatedContent(
                 targetState = uiState.messageSelectionMode,
@@ -741,11 +1090,21 @@ fun ChatScreen(
             } else {
                 TopAppBar(
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.pointerInput(Unit) {
+                                detectTapGestures(
+                                    onDoubleTap = { captureVisibleChatPageToVault() },
+                                )
+                            },
+                        ) {
                             val showTopBarAvatar = uiState.profilePicturesEnabled && !uiState.otherAvatarUrl.isNullOrBlank()
                             if (showTopBarAvatar) {
                                 AsyncImage(
-                                    model = uiState.otherAvatarUrl,
+                                    model = ImageRequest.Builder(context)
+                                        .data(uiState.otherAvatarUrl)
+                                        .allowHardware(false)
+                                        .build(),
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -797,64 +1156,7 @@ fun ChatScreen(
             }
             }
         },
-        bottomBar = {
-            if (uiState.messageSelectionMode) return@Scaffold
-            Column {
-                ChatInputBar(
-                    inputText = uiState.inputText,
-                    onInputChange = viewModel::onInputChange,
-                    onSend = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.sendMessage()
-                    },
-                    isSending = uiState.isSending,
-                    theme = chatTheme,
-                    hasDrafts = uiState.draftMedia.isNotEmpty(),
-                    drafts = uiState.draftMedia,
-                    onPickImage = {
-                        externalMediaFlowActive = true
-                        setSuppressHideOnHome(true)
-                        visualMediaPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                        )
-                    },
-                    onTakePhoto = {
-                        runWithPermissions(cameraPermissions) {
-                            showCameraDialog = true
-                        }
-                    },
-                    onPickFile = {
-                        externalMediaFlowActive = true
-                        setSuppressHideOnHome(true)
-                        filePicker.launch(arrayOf("*/*"))
-                    },
-                    onEditDraft = { draft ->
-                        if (draft.type == MessageType.IMAGE) {
-                            draftToCrop = draft
-                        }
-                    },
-                    onRemoveDraft = { viewModel.removeDraftMedia(it) },
-                    captionForDraft = { draft ->
-                        // Typed text attaches as the caption of the FIRST draft
-                        // (see ChatViewModel.sendMessage). Preview it live while
-                        // typing so the user can tag the media before sending.
-                        if (draft.localId == uiState.draftMedia.firstOrNull()?.localId) {
-                            uiState.inputText.takeIf { it.isNotBlank() }
-                        } else {
-                            null
-                        }
-                    },
-                    replyTarget = uiState.replyTarget,
-                    replyAuthorLabel = when (uiState.replyTarget?.senderId) {
-                        uiState.currentUserId -> stringResource(R.string.reply_preview_you)
-                        else -> uiState.otherDisplayName.ifBlank { stringResource(R.string.chat_actor_fallback) }
-                    },
-                    onClearReply = viewModel::clearReplyTarget,
-                    isEditing = uiState.editingMessageId != null,
-                    onClearEdit = viewModel::cancelEditing,
-                )
-            }
-        }
+        bottomBar = {},
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -877,14 +1179,20 @@ fun ChatScreen(
                     when (uiState.wallpaperSource) {
                         com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT ->
                             AsyncImage(
-                                model = uiState.wallpaperVaultImageUri,
+                                model = ImageRequest.Builder(context)
+                                    .data(uiState.wallpaperVaultImageUri)
+                                    .allowHardware(false)
+                                    .build(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         else ->
                             AsyncImage(
-                                model = uiState.otherAvatarUrl,
+                                model = ImageRequest.Builder(context)
+                                    .data(uiState.otherAvatarUrl)
+                                    .allowHardware(false)
+                                    .build(),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
@@ -899,10 +1207,37 @@ fun ChatScreen(
                     }
                 }
 
+                if (uiState.isLoadingSession) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .height(2.dp),
+                        color = chatColors.accent,
+                        trackColor = chatColors.mutedText.copy(alpha = 0.12f),
+                    )
+                }
+                if (uiState.isLoadingOlderMessages) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = chatColors.accent,
+                        )
+                    }
+                }
+
             if (uiState.messages.isEmpty() && uiState.pendingUploads.isEmpty() && !uiState.isOtherTyping) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .padding(bottom = messageViewportBottomPadding)
                         .then(
                             if (uiState.messageSelectionMode) {
                                 Modifier.pointerInput(uiState.messageSelectionMode) {
@@ -914,28 +1249,28 @@ fun ChatScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (uiState.isLoadingSession) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            strokeWidth = 2.dp,
-                            color = chatColors.accent,
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TextFields,
+                            contentDescription = null,
+                            tint = chatColors.mutedText.copy(alpha = 0.5f),
+                            modifier = Modifier.size(56.dp),
                         )
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.TextFields,
-                                contentDescription = null,
-                                tint = chatColors.mutedText.copy(alpha = 0.5f),
-                                modifier = Modifier.size(56.dp),
-                            )
-                            Text(
-                                text = stringResource(R.string.no_session_output),
-                                color = chatColors.mutedText,
-                                modifier = Modifier.padding(top = 12.dp),
-                            )
+                        Text(
+                            text = stringResource(
+                                if (uiState.isLoadingSession) {
+                                    R.string.loading_session_output
+                                } else {
+                                    R.string.no_session_output
+                                }
+                            ),
+                            color = chatColors.mutedText,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        if (!uiState.isLoadingSession) {
                             Text(
                                 text = stringResource(R.string.type_output),
                                 color = chatColors.mutedText.copy(alpha = 0.6f),
@@ -961,7 +1296,12 @@ fun ChatScreen(
                     state = listState,
                     reverseLayout = true,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 8.dp,
+                        bottom = 8.dp + messageViewportBottomPadding,
+                    )
                 ) {
                     item(key = "typing_indicator") {
                         ChatSlideInVisibility(visible = uiState.isOtherTyping) {
@@ -978,6 +1318,7 @@ fun ChatScreen(
                             isMine = true,
                             theme = chatTheme,
                             onCancel = { viewModel.cancelPendingUpload(upload.localId) },
+                            onRetry = { viewModel.retryPendingUpload(upload.localId) },
                         )
                     }
                     items(
@@ -1027,6 +1368,7 @@ fun ChatScreen(
                                                 message = message,
                                                 isMine = isMine,
                                                 theme = chatTheme,
+                                                highlighted = highlightedMessageId == message.id,
                                                 selectionMode = uiState.messageSelectionMode,
                                                 selected = message.id in uiState.selectedMessageIds,
                                                 onLongPress = {
@@ -1036,8 +1378,23 @@ fun ChatScreen(
                                                 },
                                                 onToggleSelection = { viewModel.toggleMessageSelection(message.id) },
                                                 onReply = { viewModel.setReplyTarget(message) },
+                                                onTap = {
+                                                    message.reply?.messageId?.let(::focusTaggedMessage)
+                                                },
                                                 onDoubleTap = onNavigateToLearning,
                                                 onOpenMedia = { type, url, fileName, messageId ->
+                                                    // Preserve the exact chat
+                                                    // viewport while the media
+                                                    // viewer is on screen. The
+                                                    // chat destination may be
+                                                    // recreated when Back is
+                                                    // pressed, so remember this
+                                                    // independently of the
+                                                    // LazyColumn instance.
+                                                    savedChatFirstVisibleIndex = listState.firstVisibleItemIndex
+                                                    savedChatFirstVisibleOffset = listState.firstVisibleItemScrollOffset
+                                                    restoreChatPositionOnResume = true
+                                                    needsInitialScroll = false
                                                     if ((type == MessageType.IMAGE || type == MessageType.VIDEO) && url.isNotBlank()) {
                                                         imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
                                                     }
@@ -1057,25 +1414,102 @@ fun ChatScreen(
                             }
                         }
                     }
-                    if (uiState.isLoadingOlderMessages) {
-                        item(key = "loading_older") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            }
-                        }
-                    }
                 }
             }
             }
         }
+        }
+        if (!uiState.messageSelectionMode) {
+            uiState.sendErrorMessage?.let { message ->
+                Text(
+                    text = "Send failed: $message",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = with(density) { inputBarHeightPx.toDp() } + 58.dp, start = 16.dp, end = 16.dp),
+                )
+            }
+            ChatInputBar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .onSizeChanged { inputBarHeightPx = it.height },
+                inputText = uiState.inputText,
+                onInputChange = viewModel::onInputChange,
+                onSend = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.sendMessage()
+                },
+                isSending = uiState.isSending,
+                theme = chatTheme,
+                hasDrafts = uiState.draftMedia.isNotEmpty(),
+                drafts = uiState.draftMedia,
+                onPickImage = {
+                    externalMediaFlowActive = true
+                    setSuppressHideOnHome(true)
+                    visualMediaPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                },
+                onTakePhoto = {
+                    runWithPermissions(cameraPermissions) {
+                        showCameraDialog = true
+                    }
+                },
+                onPickFile = {
+                    externalMediaFlowActive = true
+                    setSuppressHideOnHome(true)
+                    filePicker.launch(arrayOf("*/*"))
+                },
+                onEditDraft = { draft ->
+                    if (draft.type == MessageType.IMAGE) {
+                        draftToCrop = draft
+                    }
+                },
+                onRemoveDraft = { viewModel.removeDraftMedia(it) },
+                captionForDraft = { draft ->
+                    if (draft.localId == uiState.draftMedia.firstOrNull()?.localId) {
+                        uiState.inputText.takeIf { it.isNotBlank() }
+                    } else {
+                        null
+                    }
+                },
+                replyTarget = uiState.replyTarget,
+                replyAuthorLabel = when (uiState.replyTarget?.senderId) {
+                    uiState.currentUserId -> stringResource(R.string.reply_preview_you)
+                    else -> uiState.otherDisplayName.ifBlank { stringResource(R.string.chat_actor_fallback) }
+                },
+                onClearReply = viewModel::clearReplyTarget,
+                isEditing = uiState.editingMessageId != null,
+                onClearEdit = viewModel::cancelEditing,
+            )
+        }
+        if (hasNewMessagesWhileScrolled && !uiState.messageSelectionMode) {
+            SmallFloatingActionButton(
+                onClick = {
+                    hasNewMessagesWhileScrolled = false
+                    scope.launch {
+                        listState.animateScrollToItem(0)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = 18.dp,
+                        bottom = with(density) { inputBarHeightPx.toDp() } + 8.dp,
+                    )
+                    .size(36.dp),
+                shape = CircleShape,
+                containerColor = OnlineGreen,
+                contentColor = Color.White,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "New messages",
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
         callUiState.otherIncomingCallType?.let { incomingType ->
             OtherConversationIncomingCallBanner(
@@ -1106,6 +1540,14 @@ fun ChatScreen(
                 onBindLocalRenderer = callViewModel::bindLocalRenderer,
                 onBindRemoteRenderer = callViewModel::bindRemoteRenderer,
                 onDismissStatus = callViewModel::dismissStatus,
+                onRetry = {
+                    val retryType = callUiState.callType
+                    callViewModel.dismissStatus()
+                    scope.launch {
+                        kotlinx.coroutines.delay(100)
+                        if (retryType == CallType.VIDEO) startVideoCall() else startVoiceCall()
+                    }
+                },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         } else if (callUiState.phase != CallUiPhase.Hidden) {
@@ -1127,6 +1569,16 @@ fun ChatScreen(
                 onBindLocalRenderer = callViewModel::bindLocalRenderer,
                 onBindRemoteRenderer = callViewModel::bindRemoteRenderer,
                 onDismissStatus = callViewModel::dismissStatus,
+                onRetry = if (callUiState.phase == CallUiPhase.StatusMessage) {
+                    {
+                        val retryType = callUiState.callType
+                        callViewModel.dismissStatus()
+                        scope.launch {
+                            kotlinx.coroutines.delay(100)
+                            if (retryType == CallType.VIDEO) startVideoCall() else startVoiceCall()
+                        }
+                    }
+                } else null,
                 modifier = if (callUiState.isMinimized) {
                     Modifier
                         .align(
@@ -1144,6 +1596,12 @@ fun ChatScreen(
             )
         }
     }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = with(density) { inputBarHeightPx.toDp() } + 8.dp),
+        )
         webViewUrl?.let { url ->
             LearningWebView(
                 url = url,
@@ -1223,7 +1681,11 @@ private fun ChatTopBarTrailingActions(
 ) {
     Box {
         IconButton(onClick = onOpenMenu) {
-            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.more_options))
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.more_options),
+                tint = Color.White,
+            )
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = onDismissMenu) {
             DropdownMenuItem(
@@ -1288,6 +1750,7 @@ private fun PendingUploadRow(
     isMine: Boolean,
     theme: ChatTheme,
     onCancel: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -1298,6 +1761,7 @@ private fun PendingUploadRow(
             isMine = isMine,
             theme = theme,
             onCancel = onCancel,
+            onRetry = onRetry,
         )
     }
 }
@@ -1307,11 +1771,13 @@ private fun MessageBubble(
     message: ChatMessage,
     isMine: Boolean,
     theme: ChatTheme,
+    highlighted: Boolean,
     selectionMode: Boolean,
     selected: Boolean,
     onLongPress: () -> Unit,
     onToggleSelection: () -> Unit,
     onReply: () -> Unit,
+    onTap: () -> Unit,
     onDoubleTap: () -> Unit,
     onOpenMedia: (MessageType, String, String?, String) -> Unit,
     modifier: Modifier = Modifier,
@@ -1331,12 +1797,16 @@ private fun MessageBubble(
         RoundedCornerShape(theme.bubbleCornerLarge)
     }
     val selectionBorderColor by animateColorAsState(
-        targetValue = if (selected) colors.accent else Color.Transparent,
+        targetValue = when {
+            selected -> colors.accent
+            highlighted -> Color(0xFFFFC107)
+            else -> Color.Transparent
+        },
         animationSpec = tween(durationMillis = 200),
         label = "selectionBorderColor",
     )
     val selectionBorderWidth by animateDpAsState(
-        targetValue = if (selected) 2.dp else 0.dp,
+        targetValue = if (selected || highlighted) 2.dp else 0.dp,
         animationSpec = tween(durationMillis = 200),
         label = "selectionBorderWidth",
     )
@@ -1378,7 +1848,11 @@ private fun MessageBubble(
         label = "bubbleSwipe",
     )
 
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = alignment) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth(),
+        contentAlignment = alignment,
+    ) {
         Column(
             modifier = Modifier
                 .widthIn(max = theme.bubbleMaxWidth)
@@ -1427,6 +1901,7 @@ private fun MessageBubble(
                     } else if (!message.deleted) {
                         Modifier.pointerInput(message.id) {
                             detectTapGestures(
+                                onTap = { onTap() },
                                 onLongPress = { onLongPress() },
                                 onDoubleTap = { onDoubleTap() },
                             )

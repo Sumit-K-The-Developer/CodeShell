@@ -6,7 +6,11 @@ object DisguiseColors {
     val EditorBackground = Color(0xFF1E1E1E)
     val EditorGutter = Color(0xFF252526)
     val EditorLineNumber = Color(0xFF858585)
+    val EditorMutedText = Color(0xFFB8B8B8)
     val EditorDefaultText = Color(0xFFD4D4D4)
+    val EditorSenderText = Color(0xFFD4D4D4)
+    val EditorTileText = Color(0xFFD4D4D4)
+    val EditorTileBorder = Color(0xFF252526)
     val EditorKeyword = Color(0xFF569CD6)
     val EditorString = Color(0xFFCE9178)
     val EditorComment = Color(0xFF6A9955)
@@ -15,9 +19,11 @@ object DisguiseColors {
     val EditorType = Color(0xFF4EC9B0)
     val FabAccent = Color(0xFF4EC9B0)
     val FabAccentSelected = Color(0xFF3BA88E)
+    val EditorOnAccent = Color(0xFFFFFFFF)
     val TopBarBackground = Color(0xFF2D2D2D)
 }
 
 object DisguiseTheme {
     const val isLight = false
+    const val supportsIdeLight = false
 }

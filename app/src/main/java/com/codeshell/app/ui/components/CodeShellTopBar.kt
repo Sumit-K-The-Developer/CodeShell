@@ -15,16 +15,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codeshell.app.BuildConfig
 import com.codeshell.app.R
 import com.codeshell.app.ui.theme.EditorDefaultText
+import com.codeshell.app.ui.theme.FabAccent
 import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.ui.util.tapOrDoubleTap
 
@@ -39,12 +48,15 @@ fun CodeShellTopBar(
     regionToggleChecked: Boolean? = null,
     onRegionToggleChange: ((Boolean) -> Unit)? = null,
     onNewsRefresh: (() -> Unit)? = null,
+    isNewsRefreshing: Boolean = false,
 ) {
     val showSecretToggle = secretChipDoubleTapEnabled != null && onToggleSecretChipDoubleTap != null
     val isNewsMode = onNewsRefresh != null
     val titleColor = when {
         !showSecretToggle -> EditorDefaultText
-        secretChipDoubleTapEnabled == true -> Color.White
+        secretChipDoubleTapEnabled == true -> {
+            if (BuildConfig.SHELL_FLAVOR == "grammar") FabAccent else Color.White
+        }
         else -> SecretEntryDisabledColor
     }
     val titleStyle = if (showSecretToggle && secretChipDoubleTapEnabled == true) {
@@ -64,6 +76,17 @@ fun CodeShellTopBar(
     } else {
         Modifier
     }
+    val refreshRotation = if (isNewsRefreshing) {
+        rememberInfiniteTransition(label = "news_refresh").animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "news_refresh_rotation",
+        ).value
+    } else 0f
 
     CenterAlignedTopAppBar(
         modifier = modifier,
@@ -74,6 +97,7 @@ fun CodeShellTopBar(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh",
                         tint = EditorDefaultText,
+                        modifier = Modifier.graphicsLayer { rotationZ = refreshRotation },
                     )
                 }
             }
@@ -95,13 +119,12 @@ fun CodeShellTopBar(
                     )
                 }
                 if (!isNewsMode) {
-                    IconButton(onClick = { /* decorative only */ }) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = stringResource(R.string.bookmark),
-                            tint = EditorDefaultText
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        tint = EditorDefaultText,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
                 }
             }
         },

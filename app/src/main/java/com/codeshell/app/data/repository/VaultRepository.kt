@@ -137,6 +137,7 @@ class VaultRepository(private val context: Context) {
         sourceChatId: String? = null,
         sourceMessageId: String? = null,
         deleteSource: Boolean = true,
+        importedFromGallery: Boolean = false,
     ): Result<VaultItem> = withContext(Dispatchers.IO) {
         var file: java.io.File? = null
         try {
@@ -178,6 +179,7 @@ class VaultRepository(private val context: Context) {
                 fileSize = fileSize,
                 sourceChatId = sourceChatId,
                 sourceMessageId = sourceMessageId,
+                importedFromGallery = importedFromGallery,
             )
             appendToMetadata(item)
 
@@ -359,7 +361,13 @@ class VaultRepository(private val context: Context) {
             try {
                 val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
                 val fileName = getFileNameFromUri(uri) ?: "file_${index + 1}"
-                saveFromUri(uri, fileName, mimeType, deleteSource = deleteSource).onSuccess { item ->
+                saveFromUri(
+                    uri,
+                    fileName,
+                    mimeType,
+                    deleteSource = deleteSource,
+                    importedFromGallery = true,
+                ).onSuccess { item ->
                     results.add(item)
                 }.onFailure { error ->
                     errors.add("Item ${index + 1}: ${error.message}")
@@ -369,8 +377,9 @@ class VaultRepository(private val context: Context) {
             }
             onProgress(index + 1, uris.size)
         }
-        if (results.isEmpty() && errors.isNotEmpty()) {
-            Result.failure(Exception(errors.joinToString("; ")))
+        if (errors.isNotEmpty()) {
+            val savedCount = results.size
+            Result.failure(Exception("Saved $savedCount of ${uris.size} items. ${errors.joinToString("; ")}"))
         } else {
             Result.success(results)
         }

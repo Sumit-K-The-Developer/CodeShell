@@ -18,13 +18,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.FlipCameraAndroid
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.StopScreenShare
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +77,7 @@ fun CallOverlay(
     onBindLocalRenderer: (SurfaceViewRenderer) -> Unit,
     onBindRemoteRenderer: (SurfaceViewRenderer) -> Unit,
     onDismissStatus: () -> Unit,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     when (uiState.phase) {
@@ -102,6 +106,11 @@ fun CallOverlay(
                     )
                     TextButton(onClick = onDismissStatus) {
                         Text(stringResource(R.string.dismiss), color = colors.accent)
+                    }
+                    onRetry?.let {
+                        TextButton(onClick = it) {
+                            Text("Try again", color = colors.accent)
+                        }
                     }
                 }
             }
@@ -531,7 +540,7 @@ private fun CallControlRow(
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = controlBg),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Mic,
+                        imageVector = if (uiState.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = stringResource(R.string.call_toggle_mute),
                         tint = if (uiState.isMuted) controlTint.copy(alpha = 0.45f) else controlTint,
                     )
@@ -543,7 +552,11 @@ private fun CallControlRow(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = controlBg),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Videocam,
+                            imageVector = if (uiState.isVideoEnabled && !uiState.isScreenSharing) {
+                                Icons.Default.Videocam
+                            } else {
+                                Icons.Default.VideocamOff
+                            },
                             contentDescription = stringResource(R.string.call_toggle_video),
                             tint = if (uiState.isVideoEnabled && !uiState.isScreenSharing) {
                                 controlTint
@@ -558,7 +571,7 @@ private fun CallControlRow(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = controlBg),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Default.FlipCameraAndroid,
                             contentDescription = stringResource(R.string.call_switch_camera),
                             tint = if (uiState.isScreenSharing) controlTint.copy(alpha = 0.45f) else controlTint,
                         )

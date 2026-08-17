@@ -2,9 +2,11 @@ package com.codeshell.app.ui.settings
 
 import android.Manifest
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -40,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,8 +87,12 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.app.ActivityCompat
 import com.codeshell.app.MainActivity
 import com.codeshell.app.R
 import com.codeshell.app.data.model.ChatInterfaceStyle
@@ -96,9 +105,10 @@ import com.codeshell.app.ui.components.CodeShellDialogChoice
 import com.codeshell.app.ui.components.CodeShellChoiceDivider
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.ui.components.ProfilePhotoCropDialog
-import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.ui.theme.DisguiseTheme
+import com.codeshell.app.ui.vault.VaultSaveState
+import com.codeshell.app.ui.vault.VaultSaveTracker
+import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.util.ChatInactivityTimeout
 import com.codeshell.app.util.ChatMessageFontScale
 import com.codeshell.app.util.filterFourDigitCode
@@ -112,6 +122,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
+private val EditorBackground: Color
+    @Composable get() = MaterialTheme.colorScheme.background
+
+private val EditorDefaultText: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurface
+
+private val TopBarBackground: Color
+    @Composable get() = MaterialTheme.colorScheme.surface
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
@@ -124,8 +143,11 @@ fun SettingsScreen(
     val app = LocalContext.current.applicationContext as Application
     val context = LocalContext.current
     val activity = context.findActivity() as? MainActivity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val viewModel: SettingsViewModel = viewModel { SettingsViewModel(app, chatId) }
+    val vaultViewModel: VaultViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val vaultSaveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
     val chatColors = rememberChatColors()
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showSetupAccessCodeDialog by remember { mutableStateOf(false) }
@@ -143,15 +165,42 @@ fun SettingsScreen(
     var appearanceExpanded by remember { mutableStateOf(false) }
     var accountExpanded by remember { mutableStateOf(false) }
     var showBlockedUsersDialog by remember { mutableStateOf(false) }
+    var showNotificationSettingsDialog by remember { mutableStateOf(false) }
     var pendingProfilePhotoCropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var profilePhotoWarning by remember { mutableStateOf<String?>(null) }
     var showProfilePhotoViewer by remember { mutableStateOf(false) }
+    var profilePhotoSaveRequested by remember { mutableStateOf(false) }
     var showWallpaperVaultPicker by remember { mutableStateOf(false) }
     var externalProfilePhotoFlowActive by remember { mutableStateOf(false) }
+    var notificationPermissionGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
     val setupPinFocusRequester = remember { FocusRequester() }
     val setupConfirmFocusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
     val (bumpActivity, activityGeneration) = rememberTerminalActivity()
+
+    fun refreshNotificationPermission() {
+        notificationPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshNotificationPermission()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     TerminalInactivityEffect(
         onInactivityTimeout,
@@ -173,7 +222,9 @@ fun SettingsScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         activity?.applySuppressHideOnHome(false)
+        notificationPermissionGranted = granted
         viewModel.onNewTerminalAlertPermissionResult(granted)
+        if (!granted) showNotificationSettingsDialog = true
     }
     val profilePhotoPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -199,12 +250,56 @@ fun SettingsScreen(
             if (granted) {
                 viewModel.setNewTerminalAlert(true)
             } else {
+                viewModel.setNewTerminalAlert(true)
                 activity?.applySuppressHideOnHome(true)
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         } else {
             viewModel.setNewTerminalAlert(true)
         }
+    }
+
+    fun requestNotificationPermissionAgain() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        refreshNotificationPermission()
+        if (notificationPermissionGranted) return
+
+        val permanentlyBlocked = !ActivityCompat.shouldShowRequestPermissionRationale(
+            activity ?: return,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) && context.getSharedPreferences("notification_permission_state", 0)
+            .getBoolean("requested", false)
+        if (permanentlyBlocked) {
+            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            })
+        } else {
+            context.getSharedPreferences("notification_permission_state", 0)
+                .edit().putBoolean("requested", true).apply()
+            activity?.applySuppressHideOnHome(true)
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    if (showNotificationSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showNotificationSettingsDialog = false },
+            title = { Text("Notifications are off") },
+            text = { Text("To receive new terminal alerts, allow notifications for CodeShell in system settings.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    })
+                    showNotificationSettingsDialog = false
+                }) { Text("Open settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationSettingsDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     val appearanceBringIntoViewRequester = remember { BringIntoViewRequester() }
@@ -231,7 +326,7 @@ fun SettingsScreen(
     AdaptiveWidthContainer {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
-        containerColor = EditorBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
@@ -244,9 +339,9 @@ fun SettingsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TopBarBackground,
-                    titleContentColor = EditorDefaultText,
-                    navigationIconContentColor = EditorDefaultText
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         }
@@ -301,7 +396,10 @@ fun SettingsScreen(
                         )
                     },
                     onRemovePhoto = viewModel::removeProfilePhoto,
-                    onAvatarClick = { showProfilePhotoViewer = true },
+                    onAvatarClick = {
+                        profilePhotoSaveRequested = false
+                        showProfilePhotoViewer = true
+                    },
                     onViewingEnabledChange = viewModel::setProfilePicturesEnabled,
                     modifier = Modifier.padding(top = 8.dp),
                 )
@@ -402,6 +500,37 @@ fun SettingsScreen(
                         checked = uiState.newTerminalAlert,
                         onCheckedChange = ::onNewTerminalAlertToggle,
                     )
+                    if (uiState.newTerminalAlert && !notificationPermissionGranted) {
+                        val warningShape = RoundedCornerShape(50)
+                        Box(
+                            modifier = Modifier
+                                .wrapContentWidth()
+                                .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = Color(0xFFFFC107),
+                                    shape = warningShape,
+                                )
+                                .clip(warningShape)
+                                .clickable(onClick = ::requestNotificationPermissionAgain)
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.WarningAmber,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFC107),
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Text(
+                                    text = stringResource(R.string.allow_notification_permission_terminal_alert),
+                                    color = Color(0xFFFFC107),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(start = 6.dp),
+                                )
+                            }
+                        }
+                    }
                     SettingsToggleRow(
                         title = stringResource(R.string.share_panel_enabled),
                         description = stringResource(R.string.share_panel_enabled_desc),
@@ -643,6 +772,29 @@ fun SettingsScreen(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
+                val saveState = if (profilePhotoSaveRequested) vaultSaveState else null
+                val saveLabel = when (saveState) {
+                    is VaultSaveState.Saving -> "Saving…"
+                    is VaultSaveState.Success -> "Saved"
+                    is VaultSaveState.Error -> "Retry save"
+                    null, VaultSaveState.Idle -> "Save"
+                }
+                androidx.compose.material3.Button(
+                    onClick = {
+                        profilePhotoSaveRequested = true
+                        vaultViewModel.saveToVault(
+                            url = uiState.profile?.avatarUrl.orEmpty(),
+                            fileName = "profile_picture.jpg",
+                            mimeType = "image/jpeg",
+                        )
+                    },
+                    enabled = saveState !is VaultSaveState.Saving,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp),
+                ) {
+                    Text(saveLabel)
+                }
             }
         }
     }
@@ -1345,7 +1497,8 @@ private fun SettingsCollapsibleSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onToggle),
+                .clickable(onClick = onToggle)
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1392,6 +1545,12 @@ private fun SettingsToggleRow(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 color = EditorDefaultText,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = EditorDefaultText.copy(alpha = 0.62f),
+                modifier = Modifier.padding(top = 2.dp, end = 12.dp),
             )
         }
         Switch(
@@ -1445,7 +1604,9 @@ private fun ChatInterfaceStyleDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val options = ChatInterfaceStyle.entries
+    val options = ChatInterfaceStyle.entries.filter { style ->
+        style != ChatInterfaceStyle.IDE_LIGHT || DisguiseTheme.supportsIdeLight
+    }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -1489,5 +1650,6 @@ private fun chatInterfaceStyleLabel(style: ChatInterfaceStyle): String {
         ChatInterfaceStyle.DEFAULT -> stringResource(R.string.chat_interface_style_default)
         ChatInterfaceStyle.VINTAGE -> stringResource(R.string.chat_interface_style_vintage)
         ChatInterfaceStyle.IDE -> stringResource(R.string.chat_interface_style_ide)
+        ChatInterfaceStyle.IDE_LIGHT -> stringResource(R.string.chat_interface_style_ide_light)
     }
 }

@@ -210,6 +210,18 @@ class WebRtcCallEngine(
 
     fun isVideoEnabled(): Boolean = isVideoEnabled
 
+    /**
+     * Permission grants can become visible a moment after the activity result
+     * callback. Retry the capturer before SDP is created so the first video
+     * call includes a real video track.
+     */
+    fun ensureCameraCapture(): Boolean {
+        if (callType != CallType.VIDEO) return true
+        if (videoTrack != null && videoCapturer != null) return true
+        startCameraCapture()
+        return videoTrack != null && videoCapturer != null
+    }
+
     fun switchCamera() {
         if (isScreenSharing) return
         val capturer = videoCapturer ?: return

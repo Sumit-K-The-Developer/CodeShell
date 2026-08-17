@@ -6,6 +6,7 @@ import com.codeshell.app.data.ai.AiPromptBuilder
 import com.codeshell.app.data.ai.AiService
 import com.codeshell.app.data.model.AiTutorMessage
 import com.codeshell.app.data.model.AiTutorMessageRole
+import com.codeshell.app.data.model.NewsAiArticleContext
 import com.codeshell.app.ui.disguise.snippets.LearnLesson
 
 class AiTutorRepository(
@@ -17,8 +18,14 @@ class AiTutorRepository(
         priorMessages: List<AiTutorMessage>,
         userText: String,
         generic: Boolean = false,
+        articleContext: NewsAiArticleContext? = null,
     ): AiChatResult {
-        val systemPrompt = AiPromptBuilder.systemPrompt(topicLabel, lesson, generic = generic)
+        val systemPrompt = AiPromptBuilder.systemPrompt(
+            topicLabel,
+            lesson,
+            generic = generic,
+            articleContext = articleContext,
+        )
         val apiMessages = buildList {
             add(AiChatMessage(role = "system", content = systemPrompt))
             priorMessages

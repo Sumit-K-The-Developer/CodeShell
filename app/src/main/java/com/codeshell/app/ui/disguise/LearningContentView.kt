@@ -36,6 +36,7 @@ import com.codeshell.app.ui.disguise.snippets.LearnSection
 import com.codeshell.app.ui.theme.CodeTypography
 import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.EditorGutter
+import com.codeshell.app.ui.theme.EditorMutedText
 import com.codeshell.app.ui.theme.FabAccent
 import com.codeshell.app.util.SyntaxHighlighter
 
@@ -99,7 +100,7 @@ fun LearningContentView(
                 Text(
                     text = stringResource(R.string.extended_learning_hint),
                     style = MaterialTheme.typography.bodySmall,
-                    color = EditorDefaultText.copy(alpha = 0.7f),
+                    color = EditorMutedText,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
             }

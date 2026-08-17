@@ -2,7 +2,12 @@ package com.codeshell.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,15 +32,25 @@ fun OfflineBanner(
         .collectAsStateWithLifecycle(initialValue = NetworkConnectivity.hasInternet(context))
 
     if (!isOnline) {
-        Text(
-            text = stringResource(R.string.no_internet_connection),
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.text,
-            textAlign = TextAlign.Center,
+        Row(
             modifier = modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f))
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = colors.text,
+            )
+            Text(
+                text = stringResource(R.string.no_internet_connection),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.text,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
     }
 }

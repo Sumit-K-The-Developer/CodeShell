@@ -114,6 +114,7 @@ private fun DraftThumb(
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(draft.localUri)
+                            .allowHardware(false)
                             .crossfade(true)
                             .build(),
                         imageLoader = imageLoader,

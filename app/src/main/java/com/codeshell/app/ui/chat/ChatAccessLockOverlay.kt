@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -40,6 +41,7 @@ fun ChatAccessLockOverlay(
     onDigitsChange: (String) -> Unit,
     onComplete: (String) -> Unit,
     theme: ChatTheme,
+    errorMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = theme.colors
@@ -118,6 +120,14 @@ fun ChatAccessLockOverlay(
                         )
                     }
                 }
+            }
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
             BasicTextField(
                 value = digits,

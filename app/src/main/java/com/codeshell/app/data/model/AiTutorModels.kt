@@ -6,6 +6,7 @@ enum class AiTutorEntrySource {
     FAB,
     DISGUISE,
     BOT,
+    NEWS_ARTICLE,
 }
 
 enum class AiTutorMessageRole {

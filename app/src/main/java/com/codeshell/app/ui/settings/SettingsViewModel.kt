@@ -149,6 +149,11 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            appPreferences.chatTitleDoubleTapVaultCapture.collect { enabled ->
+                _uiState.update { it.copy(chatTitleDoubleTapVaultCapture = enabled) }
+            }
+        }
+        viewModelScope.launch {
             appPreferences.chatAccessCodeEnabled.collect { enabled ->
                 _uiState.update { it.copy(chatAccessCodeEnabled = enabled) }
             }
@@ -158,24 +163,35 @@ class SettingsViewModel(
     fun setHideOnHomePress(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setHideOnHomePress(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
     fun setSecureTerminalOnly(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setSecureTerminalOnly(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
+        }
+    }
+
+    fun setChatTitleDoubleTapVaultCapture(enabled: Boolean) {
+        viewModelScope.launch {
+            appPreferences.setChatTitleDoubleTapVaultCapture(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
     fun setTerminateOnLock(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setTerminateOnLock(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
     fun setCloseChatOnInactivity(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setCloseChatOnInactivity(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
@@ -193,18 +209,21 @@ class SettingsViewModel(
             } else {
                 clearFcmToken()
             }
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
     fun setProfilePicturesEnabled(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setProfilePicturesEnabled(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
     fun setChatWallpaperEnabled(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setChatWallpaperEnabled(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
         }
     }
 
@@ -437,8 +456,6 @@ class SettingsViewModel(
             if (granted) {
                 appPreferences.setNewTerminalAlert(true)
                 syncFcmToken()
-            } else {
-                appPreferences.setNewTerminalAlert(false)
             }
         }
     }
@@ -554,7 +571,8 @@ data class SettingsUiState(
     val displayId: String = "",
     val hideOnHomePress: Boolean = true,
     val terminateOnLock: Boolean = true,
-    val secureTerminalOnly: Boolean = false,
+    val secureTerminalOnly: Boolean = true,
+    val chatTitleDoubleTapVaultCapture: Boolean = false,
     val closeChatOnInactivity: Boolean = true,
     val chatInactivityTimeoutSeconds: Int = ChatInactivityTimeout.DEFAULT_SECONDS,
     val newTerminalAlert: Boolean = true,
