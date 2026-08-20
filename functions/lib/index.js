@@ -33,16 +33,18 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.purgeExpiredMessages = exports.onCallCreated = exports.onMessageCreated = exports.deleteAccount = exports.ensureBotAccount = exports.checkUsernameAvailability = void 0;
+exports.purgeExpiredMessages = exports.onCallCreated = exports.onMessageCreated = exports.deleteAccount = exports.aiTutorChat = exports.ensureBotAccount = exports.checkUsernameAvailability = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firebase_functions_1 = require("firebase-functions");
+const params_1 = require("firebase-functions/params");
 admin.initializeApp();
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 const UNSEEN_HOLD_HOURS = 24;
+const groqApiKey = (0, params_1.defineSecret)("GROQ_API_KEY");
 function unseenExpiresAtFrom(timestamp) {
     if (!timestamp)
         return null;
@@ -180,6 +182,62 @@ exports.ensureBotAccount = (0, https_1.onCall)(async (request) => {
         }
     });
     return { userId: uid, username: BOT_USERNAME };
+});
+exports.aiTutorChat = (0, https_1.onCall)({ secrets: [groqApiKey], timeoutSeconds: 90 }, async (request) => {
+    var _a, _b, _c, _d, _e, _f;
+    if (!((_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid)) {
+        throw new https_1.HttpsError("unauthenticated", "Must be signed in");
+    }
+    const messages = (_b = request.data) === null || _b === void 0 ? void 0 : _b.messages;
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > 40) {
+        throw new https_1.HttpsError("invalid-argument", "Invalid AI conversation");
+    }
+    const normalizedMessages = messages.map((message) => {
+        const value = message;
+        const role = value.role;
+        const content = value.content;
+        if ((role !== "system" && role !== "user" && role !== "assistant") ||
+            typeof content !== "string" ||
+            content.trim().length === 0 ||
+            content.length > 20000) {
+            throw new https_1.HttpsError("invalid-argument", "Invalid AI message");
+        }
+        return { role, content };
+    });
+    try {
+        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${groqApiKey.value()}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: "openai/gpt-oss-20b",
+                temperature: 0.3,
+                max_tokens: 1600,
+                messages: normalizedMessages,
+            }),
+        });
+        const body = await response.json();
+        if (response.status === 429) {
+            throw new https_1.HttpsError("resource-exhausted", "AI usage limit reached. Try again shortly.");
+        }
+        if (!response.ok) {
+            firebase_functions_1.logger.warn("Groq AI request failed", { status: response.status, uid: request.auth.uid });
+            throw new https_1.HttpsError("internal", "AI service request failed");
+        }
+        const content = (_f = (_e = (_d = (_c = body.choices) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.message) === null || _e === void 0 ? void 0 : _e.content) === null || _f === void 0 ? void 0 : _f.trim();
+        if (!content) {
+            throw new https_1.HttpsError("internal", "AI returned an empty response");
+        }
+        return { content };
+    }
+    catch (error) {
+        if (error instanceof https_1.HttpsError)
+            throw error;
+        firebase_functions_1.logger.error("AI tutor function failed", { uid: request.auth.uid, error });
+        throw new https_1.HttpsError("internal", "AI service is temporarily unavailable");
+    }
 });
 exports.deleteAccount = (0, https_1.onCall)(async (request) => {
     var _a;

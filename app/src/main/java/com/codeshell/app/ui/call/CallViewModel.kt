@@ -1,7 +1,10 @@
 package com.codeshell.app.ui.call
 
 import android.app.Application
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.call.CallAudioRoute
@@ -258,7 +261,9 @@ class CallViewModel(
             callRepository.updateCallState(callId, VoiceCallState.ACCEPTED)
             _uiState.update { it.copy(phase = CallUiPhase.Connecting) }
             startProximityControl()
-            ensureWebRtc()
+            if (!ensureWebRtc()) {
+                failCall(END_REASON_CAMERA_START_FAILED)
+            }
         }
     }
 
@@ -536,6 +541,7 @@ class CallViewModel(
         if (webRtc != null) return true
         val userId = currentUserId ?: return false
         val callId = _uiState.value.callId ?: return false
+        if (!awaitCallPermissions()) return false
         val engine = WebRtcCallEngine(
             context = getApplication(),
             callType = activeCallType,
@@ -579,7 +585,7 @@ class CallViewModel(
         )
         if (activeCallType == CallType.VIDEO) {
             var ready = engine.ensureCameraCapture()
-            repeat(5) {
+            repeat(20) {
                 if (ready) return@repeat
                 delay(100)
                 ready = engine.ensureCameraCapture()
@@ -606,6 +612,24 @@ class CallViewModel(
             }
         }
         return true
+    }
+
+    private suspend fun awaitCallPermissions(): Boolean {
+        val context = getApplication<Application>()
+        repeat(50) {
+            val microphoneGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            val cameraGranted = activeCallType != CallType.VIDEO ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+            if (microphoneGranted && cameraGranted) return true
+            delay(100)
+        }
+        return false
     }
 
     private suspend fun createAndSendOffer(callId: String) {

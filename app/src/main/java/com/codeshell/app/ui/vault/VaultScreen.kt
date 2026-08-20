@@ -500,6 +500,37 @@ fun VaultScreen(
                     }
                 }
 
+                uiState.loadError != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.vault_load_failed),
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = uiState.loadError.orEmpty(),
+                                color = EditorDefaultText.copy(alpha = 0.65f),
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            Button(
+                                onClick = viewModel::loadItems,
+                                modifier = Modifier.padding(top = 16.dp),
+                            ) {
+                                Text(stringResource(R.string.retry))
+                            }
+                        }
+                    }
+                }
+
                 uiState.items.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),

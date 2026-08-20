@@ -45,16 +45,24 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadItems() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            val items = vaultRepository.getAllItems()
-                .sortedByDescending { it.dateSaved }
-            val pendingIds = PendingVaultDeletionRegistry.pendingIds()
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    items = items.filterNot { item -> item.id in pendingIds },
-                )
-            }
+            _uiState.update { it.copy(isLoading = true, loadError = null) }
+            vaultRepository.getAllItemsResult().fold(
+                onSuccess = { items ->
+                    val pendingIds = PendingVaultDeletionRegistry.pendingIds()
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            items = items.filterNot { item -> item.id in pendingIds },
+                            loadError = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(isLoading = false, loadError = error.message ?: "Could not load Vault")
+                    }
+                },
+            )
         }
     }
 
@@ -511,6 +519,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 data class VaultUiState(
     val items: List<VaultItem> = emptyList(),
     val isLoading: Boolean = false,
+    val loadError: String? = null,
     val isSaving: Boolean = false,
     val saveProgress: Pair<Int, Int>? = null, // completed/total
     val isSending: Boolean = false,

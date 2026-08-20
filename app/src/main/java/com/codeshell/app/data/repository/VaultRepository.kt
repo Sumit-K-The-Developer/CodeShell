@@ -17,6 +17,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.ByteArrayInputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 class VaultRepository(private val context: Context) {
@@ -473,19 +476,20 @@ class VaultRepository(private val context: Context) {
         }
     }
 
-    suspend fun getAllItems(): List<VaultItem> = withContext(Dispatchers.IO) {
+    suspend fun getAllItemsResult(): Result<List<VaultItem>> = withContext(Dispatchers.IO) {
         try {
             synchronized(metadataLock) {
-                if (!metadataFile.exists()) return@withContext emptyList()
+                if (!metadataFile.exists()) return@withContext Result.success(emptyList())
                 val text = metadataFile.readText()
-                json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved }
+                Result.success(json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved })
             }
         } catch (e: Throwable) {
-            // Catch Throwable (incl. Error) so a malformed/corrupt metadata
-            // file can never crash loadItems() (which runs right after a save).
-            emptyList()
+            Result.failure(Exception("Could not read Vault data: ${e.message ?: "metadata is invalid"}", e))
         }
     }
+
+    suspend fun getAllItems(): List<VaultItem> =
+        getAllItemsResult().getOrDefault(emptyList())
 
     suspend fun getDecryptedBytes(item: VaultItem): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
@@ -592,8 +596,29 @@ fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
                     ?: return@withContext Result.failure(Exception("Could not read edited image"))
                 val temporary = File(vaultDir, ".${item.id}_edited.tmp")
                 source.use { input -> temporary.outputStream().use { output -> input.copyTo(output) } }
-                target.outputStream().use { output -> temporary.inputStream().use { input -> input.copyTo(output) } }
-                temporary.delete()
+                try {
+                    Files.move(
+                        temporary.toPath(),
+                        target.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    // Keep the original intact until the replacement is ready.
+                    // Android's internal files directory normally supports the
+                    // atomic path above; this is a safe fallback for unusual filesystems.
+                    val backup = File(vaultDir, ".${item.id}_original.bak")
+                    Files.move(target.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    try {
+                        Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                        backup.delete()
+                    } catch (replacementError: Throwable) {
+                        if (!target.exists() && backup.exists()) {
+                            Files.move(backup.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                        }
+                        throw replacementError
+                    }
+                }
 
                 val thumbnail = File(thumbnailsDir, "${item.id}.jpg")
                 runCatching { generateThumbnailStreaming(target, item.mimeType, thumbnail) }

@@ -1,6 +1,8 @@
 package com.codeshell.app.ui.aitutor
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +33,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -49,6 +57,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,6 +69,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,11 +111,8 @@ fun AiTutorScreen(
         )
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showClearDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val typingScrollKey = uiState.messages.lastOrNull()
-        ?.takeIf { it.isTyping }
-        ?.displayedContent
-        ?.length ?: 0
     val isFollowingGeneration = uiState.isLoading || uiState.isTypingAnimation
     val articlePrompts = if (entrySource == AiTutorEntrySource.NEWS_ARTICLE &&
         uiState.messages.none { it.role == AiTutorMessageRole.USER } &&
@@ -113,8 +121,12 @@ fun AiTutorScreen(
         listOf(
             "Summarise this article",
             "Give me the key points",
-            "Explain this simply",
-            "What context is missing?",
+            "Explain this article in simple English",
+            "Teach me English vocabulary from this article",
+            "Teach me the grammar of simple, compound, and complex sentences from this article",
+            "Find useful idioms and phrases in this article",
+            "Quiz me on this article",
+            "What context or background should I know?",
         )
     } else {
         emptyList()
@@ -131,16 +143,15 @@ fun AiTutorScreen(
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
 
-    LaunchedEffect(scrollTargetIndex, typingScrollKey, isFollowingGeneration) {
+    // Scroll when the conversation structure changes, but do not react to
+    // every generated character. This lets the user read older article text
+    // while the answer continues generating.
+    LaunchedEffect(scrollTargetIndex) {
         if (scrollTargetIndex < 0) return@LaunchedEffect
-        if (isFollowingGeneration) {
-            listState.scrollToItem(scrollTargetIndex, scrollOffset = Int.MAX_VALUE)
-        } else {
-            listState.animateScrollToItem(scrollTargetIndex, scrollOffset = Int.MAX_VALUE)
-        }
+        listState.animateScrollToItem(scrollTargetIndex, scrollOffset = Int.MAX_VALUE)
     }
 
-    LaunchedEffect(imeBottom, scrollTargetIndex, typingScrollKey) {
+    LaunchedEffect(imeBottom, scrollTargetIndex) {
         if (scrollTargetIndex < 0) return@LaunchedEffect
         listState.scrollToItem(scrollTargetIndex, scrollOffset = Int.MAX_VALUE)
     }
@@ -189,6 +200,17 @@ fun AiTutorScreen(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = AiTutorColors.TopBar,
                     ),
+                    actions = {
+                        if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) {
+                            IconButton(onClick = { showClearDialog = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = stringResource(R.string.ai_tutor_clear_article_chat),
+                                    tint = AiTutorColors.TextPrimary,
+                                )
+                            }
+                        }
+                    },
                 )
                 HorizontalDivider(color = AiTutorColors.Divider)
             }
@@ -212,16 +234,33 @@ fun AiTutorScreen(
                 .padding(innerPadding),
         ) {
             AiTutorOfflineBanner()
-            uiState.articleFetchWarning?.let { warning ->
+            if (uiState.isArticleFetching) {
                 Text(
-                    text = warning,
+                    text = stringResource(R.string.ai_tutor_fetching_article),
                     style = MaterialTheme.typography.bodySmall,
-                    color = AiTutorColors.TextPrimary,
+                    color = AiTutorColors.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            uiState.articleFetchWarning?.let { warning ->
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(AiTutorColors.ErrorBackground)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                ) {
+                    Text(text = warning, style = MaterialTheme.typography.bodySmall, color = AiTutorColors.TextPrimary)
+                    TextButton(onClick = viewModel::retryArticleFetch) {
+                        Text(stringResource(R.string.ai_tutor_retry_fetch), color = AiTutorColors.Accent)
+                    }
+                }
+            }
+            uiState.articleContext?.let { article ->
+                ArticleSourceRow(article = article, onOpen = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.url)))
+                    }
+                })
             }
             if (uiState.articleFetchComplete) {
                 Text(
@@ -255,7 +294,10 @@ fun AiTutorScreen(
                             welcomeDigits = welcomeDigits,
                         )
                     } else {
-                        AiTutorMessageBubble(message = message)
+                        AiTutorMessageBubble(
+                            message = message,
+                            onRegenerate = viewModel::regenerateResponse,
+                        )
                     }
                 }
                 if (uiState.isLoading) {
@@ -280,6 +322,26 @@ fun AiTutorScreen(
                 }
             }
         }
+    }
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text(stringResource(R.string.ai_tutor_clear_article_chat)) },
+            text = { Text(stringResource(R.string.ai_tutor_clear_article_chat_message)) },
+            confirmButton = {
+                Button(onClick = {
+                    showClearDialog = false
+                    viewModel.clearArticleConversation()
+                }) {
+                    Text(stringResource(R.string.clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -352,11 +414,49 @@ private fun AiTutorWelcomeHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 16.dp),
+        maxLines = if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) 4 else Int.MAX_VALUE,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
 @Composable
-private fun AiTutorMessageBubble(message: AiTutorMessage) {
+private fun ArticleSourceRow(
+    article: NewsAiArticleContext,
+    onOpen: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Source: ${article.sourceName.ifBlank { "Unknown" }}",
+            style = MaterialTheme.typography.labelMedium,
+            color = AiTutorColors.TextSecondary,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        TextButton(onClick = onOpen, enabled = article.url.isNotBlank()) {
+            Text(stringResource(R.string.ai_tutor_open_source), color = AiTutorColors.Accent)
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = null,
+                tint = AiTutorColors.Accent,
+                modifier = Modifier
+                    .padding(start = 4.dp)
+                    .size(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiTutorMessageBubble(
+    message: AiTutorMessage,
+    onRegenerate: (String) -> Unit = {},
+) {
     val isUser = message.role == AiTutorMessageRole.USER
     val isAssistant = message.role == AiTutorMessageRole.ASSISTANT
     val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
@@ -383,44 +483,60 @@ private fun AiTutorMessageBubble(message: AiTutorMessage) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isAssistant) Arrangement.Start else Arrangement.End,
-            verticalAlignment = Alignment.Bottom,
+            horizontalAlignment = if (isAssistant) Alignment.Start else Alignment.End,
         ) {
-            SelectionContainer(
-                modifier = if (isAssistant) Modifier.weight(1f) else Modifier.fillMaxWidth(0.88f),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isAssistant) Arrangement.Start else Arrangement.End,
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Text(
-                    text = renderedText,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (borderColor != null) {
-                                Modifier.border(1.dp, borderColor, RoundedCornerShape(16.dp))
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .background(background, RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
-                )
-            }
-            if (isAssistant && !message.isTyping && message.content.isNotBlank()) {
-                IconButton(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(message.content))
-                    },
-                    modifier = Modifier.size(32.dp),
+                SelectionContainer(
+                    modifier = if (isAssistant) Modifier.weight(1f) else Modifier.fillMaxWidth(0.88f),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy response",
-                        tint = AiTutorColors.TextSecondary,
-                        modifier = Modifier.size(17.dp),
+                    Text(
+                        text = renderedText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (borderColor != null) {
+                                    Modifier.border(1.dp, borderColor, RoundedCornerShape(16.dp))
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .background(background, RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
                     )
+                }
+                if (isAssistant && !message.isTyping && message.content.isNotBlank()) {
+                    IconButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(message.content))
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy response",
+                            tint = AiTutorColors.TextSecondary,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = { onRegenerate(message.id) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Regenerate response",
+                            tint = AiTutorColors.TextSecondary,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
                 }
             }
         }

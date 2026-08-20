@@ -28,8 +28,12 @@ class AiTutorRepository(
         )
         val apiMessages = buildList {
             add(AiChatMessage(role = "system", content = systemPrompt))
+            // Keep the request responsive as an article conversation grows.
+            // The local transcript remains complete; only the oldest turns are
+            // omitted from the provider request.
             priorMessages
                 .filter { it.role == AiTutorMessageRole.USER || it.role == AiTutorMessageRole.ASSISTANT }
+                .takeLast(MAX_HISTORY_MESSAGES)
                 .forEach { message ->
                     val role = when (message.role) {
                         AiTutorMessageRole.USER -> "user"
@@ -41,5 +45,9 @@ class AiTutorRepository(
             add(AiChatMessage(role = "user", content = userText))
         }
         return aiService.chat(apiMessages)
+    }
+
+    companion object {
+        private const val MAX_HISTORY_MESSAGES = 16
     }
 }

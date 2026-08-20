@@ -3,12 +3,14 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
+import { defineSecret } from "firebase-functions/params";
 
 admin.initializeApp();
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 const UNSEEN_HOLD_HOURS = 24;
+const groqApiKey = defineSecret("GROQ_API_KEY");
 
 function unseenExpiresAtFrom(
   timestamp: admin.firestore.Timestamp | undefined
@@ -170,6 +172,73 @@ export const ensureBotAccount = onCall(async (request) => {
 
   return { userId: uid, username: BOT_USERNAME };
 });
+
+export const aiTutorChat = onCall(
+  { secrets: [groqApiKey], timeoutSeconds: 90 },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "Must be signed in");
+    }
+
+    const messages = request.data?.messages;
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > 40) {
+      throw new HttpsError("invalid-argument", "Invalid AI conversation");
+    }
+
+    const normalizedMessages = messages.map((message: unknown) => {
+      const value = message as { role?: unknown; content?: unknown };
+      const role = value.role;
+      const content = value.content;
+      if (
+        (role !== "system" && role !== "user" && role !== "assistant") ||
+        typeof content !== "string" ||
+        content.trim().length === 0 ||
+        content.length > 20_000
+      ) {
+        throw new HttpsError("invalid-argument", "Invalid AI message");
+      }
+      return { role, content };
+    });
+
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${groqApiKey.value()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-oss-20b",
+          temperature: 0.3,
+          max_tokens: 1600,
+          messages: normalizedMessages,
+        }),
+      });
+      const body = await response.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        error?: { message?: string };
+      };
+
+      if (response.status === 429) {
+        throw new HttpsError("resource-exhausted", "AI usage limit reached. Try again shortly.");
+      }
+      if (!response.ok) {
+        logger.warn("Groq AI request failed", { status: response.status, uid: request.auth.uid });
+        throw new HttpsError("internal", "AI service request failed");
+      }
+
+      const content = body.choices?.[0]?.message?.content?.trim();
+      if (!content) {
+        throw new HttpsError("internal", "AI returned an empty response");
+      }
+      return { content };
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("AI tutor function failed", { uid: request.auth.uid, error });
+      throw new HttpsError("internal", "AI service is temporarily unavailable");
+    }
+  },
+);
 
 export const deleteAccount = onCall(async (request) => {
   const uid = request.auth?.uid;

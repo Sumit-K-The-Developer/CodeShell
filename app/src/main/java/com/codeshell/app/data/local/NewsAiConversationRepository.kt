@@ -47,6 +47,15 @@ class NewsAiConversationRepository(context: Context) {
         }
     }
 
+    suspend fun clear(articleKey: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val collection = readCollection().toMutableSessions()
+            if (collection.remove(articleKey) != null) {
+                writeCollection(AiTutorSessionCollection(collection))
+            }
+        }
+    }
+
     suspend fun cachedArticleKeys(): Set<String> = withContext(Dispatchers.IO) {
         mutex.withLock { readCollection().sessions.keys }
     }

@@ -528,7 +528,7 @@ fun ChatScreen(
 
     LaunchedEffect(pendingPermissionRequest, permissionResultVersion) {
         val request = pendingPermissionRequest ?: return@LaunchedEffect
-        repeat(30) {
+        repeat(50) {
             val stillMissing = request.filter {
                 androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
                     android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -545,12 +545,6 @@ fun ChatScreen(
 
                 if (callType != null) {
                     callViewModel.startOutgoingCall(callType)
-                    kotlinx.coroutines.delay(3_000L)
-                    if (callViewModel.uiState.value.phase == CallUiPhase.Hidden) {
-                        snackbarHostState.showSnackbar(
-                            "Permission granted. Tap the call button again to start the call."
-                        )
-                    }
                 } else {
                     action?.invoke()
                 }
@@ -613,7 +607,14 @@ fun ChatScreen(
             if (permanentlyDenied) {
                 permissionDialogMessage = "Permission is blocked. Open system settings to allow it for CodeShell."
                 permissionDialogShowSettings = true
-            } else if (missing.any { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }) {
+              } else if (callType != null && missing.any { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }) {
+                  // Calls should proceed to the Android permission prompt in the same
+                  // user action; an extra in-app rationale tap made the first call
+                  // look as if permission handling had stalled.
+                  prefs.edit().putBoolean(missing.first(), true).apply()
+                  setSuppressHideOnHome(true)
+                  permissionLauncher.launch(missing.toTypedArray())
+              } else if (missing.any { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }) {
                 permissionDialogMessage = deniedMessage ?: "This permission is needed for this action."
                 permissionDialogShowSettings = false
             } else {

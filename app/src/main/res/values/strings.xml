@@ -335,6 +335,12 @@
     <string name="ai_tutor_no_api_key">AI tutor is not configured.</string>
     <string name="ai_tutor_lesson_hint">You can still read the %1$s lesson in the learning screen.</string>
     <string name="ai_tutor_article_fetch_warning">Unable to fetch the full article. Cached article text will be used where available.</string>
+    <string name="ai_tutor_fetching_article">Preparing the full article…</string>
+    <string name="ai_tutor_retry_fetch">Retry article fetch</string>
+    <string name="ai_tutor_clear_article_chat">Clear article chat</string>
+    <string name="ai_tutor_clear_article_chat_message">Delete this article’s saved AI conversation?</string>
+    <string name="ai_tutor_open_source">Open original article</string>
+    <string name="clear">Clear</string>
 
     <!-- Vault save foreground service -->
     <string name="vault_save_notification_title">Saving to Vault</string>
@@ -351,7 +357,9 @@
     <string name="select_items">Select items</string>
     <string name="add_to_vault">Add to Vault</string>
     <string name="no_media_saved_yet">No media saved yet</string>
-    <string name="vault_empty_hint">Tap + to add from the gallery, or save media from sessions.</string>
+    <string name="vault_load_failed">Vault data could not be loaded</string>
+    <string name="vault_retry">Retry</string>
+    <string name="vault_empty_hint">Tap + to add media from the gallery, or save media from sessions.</string>
     <string name="move_to_gallery">Move to Gallery</string>
     <string name="copy_to_gallery">Copy to Gallery</string>
     <string name="delete_vault_item_title">Delete vault item?</string>

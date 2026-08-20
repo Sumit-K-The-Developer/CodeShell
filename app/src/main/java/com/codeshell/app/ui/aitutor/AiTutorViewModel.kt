@@ -40,6 +40,7 @@ data class AiTutorUiState(
     val articleContext: NewsAiArticleContext? = null,
     val articleFetchWarning: String? = null,
     val articleFetchComplete: Boolean = false,
+    val isArticleFetching: Boolean = false,
 )
 
 class AiTutorViewModel(
@@ -78,6 +79,7 @@ class AiTutorViewModel(
 
     private var typingJob: Job? = null
     private var requestJob: Job? = null
+    private var articleFetchStarted = false
 
     init {
         if (entrySource == AiTutorEntrySource.NEWS_ARTICLE && articleContext != null) {
@@ -153,6 +155,9 @@ class AiTutorViewModel(
     private suspend fun resolveArticleContext() {
         val article = _uiState.value.articleContext ?: articleContext ?: return
         if (article.fullArticleFetched) return
+        if (articleFetchStarted) return
+        articleFetchStarted = true
+        _uiState.update { it.copy(isArticleFetching = true, articleFetchWarning = null) }
         val fetched = NewsRepository().fetchArticleContent(article.url)
         val context = fetched.getOrNull()?.takeIf { it.isNotBlank() }
         val warning = if (context == null) {
@@ -168,9 +173,66 @@ class AiTutorViewModel(
                 ),
                 articleFetchWarning = warning,
                 articleFetchComplete = context != null,
+                isArticleFetching = false,
             )
         }
         persistArticleConversation()
+    }
+
+    fun retryArticleFetch() {
+        if (entrySource != AiTutorEntrySource.NEWS_ARTICLE) return
+        articleFetchStarted = false
+        viewModelScope.launch { resolveArticleContext() }
+    }
+
+    fun clearArticleConversation() {
+        if (entrySource != AiTutorEntrySource.NEWS_ARTICLE) return
+        val article = _uiState.value.articleContext ?: articleContext ?: return
+        viewModelScope.launch {
+            articleConversationRepository.clear(
+                newsAiConversationKey(
+                    url = article.url,
+                    title = article.title,
+                    sourceName = article.sourceName,
+                    publishedAt = article.publishedAt,
+                ),
+            )
+            appendWelcomeMessage()
+            _uiState.update {
+                it.copy(
+                    inputText = "",
+                    errorMessage = null,
+                    lessonHint = null,
+                )
+            }
+        }
+    }
+
+    fun regenerateResponse(messageId: String) {
+        if (_uiState.value.isLoading || _uiState.value.isTypingAnimation) return
+        val state = _uiState.value
+        val assistantIndex = state.messages.indexOfFirst { it.id == messageId && it.role == AiTutorMessageRole.ASSISTANT }
+        if (assistantIndex < 1) return
+        val userIndex = (assistantIndex - 1 downTo 0).firstOrNull {
+            state.messages[it].role == AiTutorMessageRole.USER
+        } ?: return
+        val userMessage = state.messages[userIndex]
+        val priorMessages = state.messages.take(userIndex).filter {
+            it.role == AiTutorMessageRole.USER || it.role == AiTutorMessageRole.ASSISTANT
+        }
+        _uiState.update {
+            it.copy(
+                messages = it.messages.filterIndexed { index, _ -> index != assistantIndex },
+                isLoading = true,
+                errorMessage = null,
+                lessonHint = null,
+            )
+        }
+        requestJob?.cancel()
+        requestJob = viewModelScope.launch {
+            if (entrySource == AiTutorEntrySource.NEWS_ARTICLE) resolveArticleContext()
+            sendMessageInternal(userMessage.content, priorMessages, userMessage.id)
+        }
     }
 
     private suspend fun sendMessageInternal(
@@ -363,6 +425,7 @@ class AiTutorViewModel(
             val restoredMessages = stored?.messages?.mapNotNull { it.toDomain() }
             if (restoredMessages.isNullOrEmpty()) {
                 appendWelcomeMessage()
+                resolveArticleContext()
                 return@launch
             }
             _uiState.update {
@@ -371,6 +434,7 @@ class AiTutorViewModel(
                     articleContext = stored.articleContext?.toDomain() ?: article,
                 )
             }
+            resolveArticleContext()
         }
     }
 
