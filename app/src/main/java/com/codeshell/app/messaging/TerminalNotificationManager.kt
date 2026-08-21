@@ -19,7 +19,13 @@ import com.codeshell.app.receiver.NotificationDismissReceiver
 
 object TerminalNotificationManager {
 
+    const val ACTION_CONNECT_CALL = "com.codeshell.app.action.CONNECT_CALL"
+    const val ACTION_REJECT_CALL = "com.codeshell.app.action.REJECT_CALL"
+    const val ACTION_DISCONNECT_CALL = "com.codeshell.app.action.DISCONNECT_CALL"
     const val EXTRA_CHAT_ID = "extra_notification_chat_id"
+    const val EXTRA_CALL_ID = "extra_call_id"
+    const val EXTRA_CALL_TYPE = "extra_call_type"
+    const val EXTRA_DIRECT_CALL = "extra_direct_call"
     const val EXTRA_IS_CALL = "extra_notification_is_call"
     const val EXTRA_OPEN_CHAT_ID = "extra_open_chat_id"
     const val EXTRA_OPEN_LEARNING = "extra_open_learning"

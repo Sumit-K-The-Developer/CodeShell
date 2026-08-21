@@ -147,6 +147,8 @@ class CallForegroundService : Service() {
     }
 
     companion object {
+        const val ACTION_START_BACKGROUND_AUDIO = "com.codeshell.app.action.START_BACKGROUND_AUDIO"
+        const val EXTRA_CALL_ID = "extra_call_id"
         const val EXTRA_CALL_TYPE = "extra_call_type"
         const val EXTRA_SCREEN_SHARING = "extra_screen_sharing"
         const val EXTRA_SCREEN_SHARE_PAUSED = "extra_screen_share_paused"
