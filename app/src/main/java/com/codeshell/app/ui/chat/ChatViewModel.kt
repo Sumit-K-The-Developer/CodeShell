@@ -17,6 +17,7 @@ import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.repository.AuthRepository
 import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.data.repository.PresenceRepository
+import com.codeshell.app.data.repository.PresenceState
 import com.codeshell.app.data.repository.StorageRepository
 import com.codeshell.app.data.repository.UserRepository
 import com.codeshell.app.data.repository.VaultRepository
@@ -79,6 +80,7 @@ class ChatViewModel(
     private var publishJob: Job? = null
     private var unreadResetJob: Job? = null
     private var expirySweepJob: Job? = null
+    private var presenceRefreshJob: Job? = null
     private val activeUploadJobs = ConcurrentHashMap<String, Job>()
     private val activeUploadMessageIds = ConcurrentHashMap<String, String>()
     private val markedSeenIds = mutableSetOf<String>()
@@ -87,10 +89,44 @@ class ChatViewModel(
     private var cachedParticipantIds: List<String> = emptyList()
     private var olderMessages: List<ChatMessage> = emptyList()
     private var recentMessages: List<ChatMessage> = emptyList()
+    private var latestPresence: PresenceState? = null
     private var hasMoreOlderMessages = true
     private val locallyHiddenMessageIds = mutableSetOf<String>()
     private val evictedMediaMessageIds = mutableSetOf<String>()
     private val optimisticallyDeletedMessageIds = mutableSetOf<String>()
+
+    fun toggleMessageLike(messageId: String) {
+        viewModelScope.launch {
+            val current = _uiState.value.messages.firstOrNull { it.id == messageId } ?: return@launch
+            val liked = !current.liked
+            _uiState.update { state ->
+                state.copy(
+                    messages = state.messages.map { message ->
+                        if (message.id == messageId) message.copy(liked = liked) else message
+                    },
+                    likedMessageIds = if (liked) {
+                        state.likedMessageIds + messageId
+                    } else {
+                        state.likedMessageIds - messageId
+                    },
+                )
+            }
+            if (messageRepository.setMessageLiked(chatId, messageId, liked).isFailure) {
+                _uiState.update { state ->
+                    state.copy(
+                        messages = state.messages.map { message ->
+                            if (message.id == messageId) message.copy(liked = !liked) else message
+                        },
+                        likedMessageIds = if (liked) {
+                            state.likedMessageIds - messageId
+                        } else {
+                            state.likedMessageIds + messageId
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     private fun offlineMessage(): String =
         NetworkConnectivity.message(
@@ -116,6 +152,9 @@ class ChatViewModel(
 
     init {
         currentUserId?.let { loadSession(it) }
+        viewModelScope.launch {
+            _uiState.update { it.copy(likedMessageIds = appPreferences.getLikedMessageIds(chatId)) }
+        }
         viewModelScope.launch {
             BackgroundUploadRegistry.observe(chatId).collect { uploads ->
                 _uiState.update { it.copy(pendingUploads = uploads) }
@@ -875,6 +914,8 @@ class ChatViewModel(
                                 UsernameFormatter.display(name)
                             }.orEmpty(),
                             otherAvatarUrl = profile?.avatarUrl,
+                            otherAvatarFullUrl = profile?.avatarFullUrl,
+                            otherAvatarSharedUrl = profile?.avatarSharedUrl ?: profile?.avatarFullUrl,
                         )
                     }
                 }
@@ -882,10 +923,25 @@ class ChatViewModel(
     }
 
     private fun observePresence(otherUserId: String) {
+        presenceRefreshJob?.cancel()
+        presenceRefreshJob = viewModelScope.launch {
+            while (isActive) {
+                delay(PRESENCE_REFRESH_INTERVAL_MS)
+                latestPresence?.let { presence ->
+                    _uiState.update {
+                        it.copy(isOtherOnline = PresenceRepository.isOnline(presence))
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             presenceRepository.observePresence(otherUserId)
-                .catch { /* ignore */ }
+                .catch {
+                    latestPresence = null
+                    _uiState.update { it.copy(isOtherTyping = false, isOtherOnline = false) }
+                }
                 .collect { presence ->
+                    latestPresence = presence
                     val typingVisible = presence.isTyping && presence.typingInChat == chatId
                     _uiState.update {
                         it.copy(
@@ -905,6 +961,7 @@ class ChatViewModel(
                 }
                 .collect { recent ->
                     recentMessages = recent
+                    captureExpiredUnreadCount(recent, userId)
                     // Keep the optimistic placeholder until the remote
                     // snapshot confirms the deleted flag, so a slow listener
                     // cannot briefly restore the original message.
@@ -977,6 +1034,20 @@ class ChatViewModel(
         unreadResetJob = viewModelScope.launch {
             delay(UNREAD_RESET_DEBOUNCE_MS)
             messageRepository.resetUnreadCount(chatId, userId)
+        }
+    }
+
+    private fun captureExpiredUnreadCount(messages: List<ChatMessage>, userId: String) {
+        val count = messages.count { message ->
+            message.senderId != userId &&
+                !message.read &&
+                !message.deleted &&
+                message.type != MessageType.SESSION &&
+                message.type != MessageType.SYSTEM &&
+                message.unseenExpiresAt?.let(MessageExpiryUtil::isExpired) == true
+        }
+        if (count > 0) {
+            _uiState.update { it.copy(expiredUnreadCount = maxOf(it.expiredUnreadCount, count)) }
         }
     }
 
@@ -1073,6 +1144,7 @@ class ChatViewModel(
 
     private fun startExpirySweep() {
         expirySweepJob?.cancel()
+        presenceRefreshJob?.cancel()
         expirySweepJob = viewModelScope.launch {
             while (isActive) {
                 delay(EXPIRY_SWEEP_INTERVAL_MS)
@@ -1182,6 +1254,7 @@ class ChatViewModel(
         private const val UNREAD_RESET_DEBOUNCE_MS = 300L
         private const val PUBLISH_DEBOUNCE_MS = 50L
         private const val EXPIRY_SWEEP_INTERVAL_MS = 60_000L
+        private const val PRESENCE_REFRESH_INTERVAL_MS = 5_000L
         private const val MESSAGE_REMOVE_ANIM_MS = 220L
     }
 }
@@ -1217,7 +1290,10 @@ data class ChatUiState(
     val otherUserId: String? = null,
     val otherDisplayName: String = "",
     val otherAvatarUrl: String? = null,
+    val otherAvatarFullUrl: String? = null,
+    val otherAvatarSharedUrl: String? = null,
     val messages: List<ChatMessage> = emptyList(),
+    val likedMessageIds: Set<String> = emptySet(),
     val listEntries: List<ChatListEntry> = emptyList(),
     val pendingUploads: List<PendingUpload> = emptyList(),
     val draftMedia: List<DraftMedia> = emptyList(),
@@ -1245,4 +1321,5 @@ data class ChatUiState(
     val errorMessage: String? = null,
     val sendErrorMessage: String? = null,
     val videoTooLargeMessage: String? = null,
+    val expiredUnreadCount: Int = 0,
 )

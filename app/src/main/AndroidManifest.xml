@@ -43,6 +43,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".call.BackgroundAudioCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.CodeShell.BackgroundCall" />
+
         <activity-alias
             android:name=".ShareActivityAlias"
             android:enabled="false"
@@ -104,6 +110,10 @@
 
         <receiver
             android:name=".receiver.ScreenShareActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".receiver.CallNotificationActionReceiver"
             android:exported="false" />
 
         <service

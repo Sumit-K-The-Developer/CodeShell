@@ -1,7 +1,11 @@
 package com.codeshell.app.ui.vault
 
 import android.app.Application
+import android.content.ContentValues
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.data.model.MessageType
@@ -21,6 +25,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import java.util.UUID
 
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
@@ -232,6 +238,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { state ->
                         state.copy(
                             exportSuccess = true,
+                            exportSuccessMessage = "Moved to gallery",
                             isExporting = false,
                             items = state.items.filterNot { it.id == item.id },
                         )
@@ -248,7 +255,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(isExporting = true, errorMessage = null) }
             vaultRepository.copyToGallery(item)
                 .onSuccess {
-                    _uiState.update { it.copy(exportSuccess = true, isExporting = false) }
+                    _uiState.update {
+                        it.copy(
+                            exportSuccess = true,
+                            exportSuccessMessage = "Copied to gallery",
+                            isExporting = false,
+                        )
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -280,7 +293,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearError() {
-        _uiState.update { it.copy(errorMessage = null, sendSuccess = false, exportSuccess = false) }
+        _uiState.update {
+            it.copy(
+                errorMessage = null,
+                sendSuccess = false,
+                exportSuccess = false,
+                exportSuccessMessage = null,
+            )
+        }
     }
 
     fun clearSelection() {
@@ -372,10 +392,99 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     isExporting = false,
                     exportSuccess = lastError == null,
+                    exportSuccessMessage = if (lastError == null) "Copied to gallery" else null,
                     selectionMode = false,
                     selectedItems = emptySet(),
                     errorMessage = lastError,
                 )
+            }
+        }
+    }
+
+    fun exportSelectedAsZip() {
+        val itemsToExport = _uiState.value.items.filter { it.id in _uiState.value.selectedItems }
+        if (itemsToExport.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isExporting = true,
+                    exportProgress = 0 to itemsToExport.size,
+                    errorMessage = null,
+                )
+            }
+            var outputUri: Uri? = null
+            try {
+                withContext(Dispatchers.IO) {
+                    val displayName = "vault_export_${System.currentTimeMillis()}.zip"
+                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    } else {
+                        MediaStore.Files.getContentUri("external")
+                    }
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
+                    }
+                    outputUri = getApplication<Application>().contentResolver.insert(collection, values)
+                        ?: error("Could not create ZIP file in Downloads")
+
+                    getApplication<Application>().contentResolver.openOutputStream(outputUri!!)?.use { output ->
+                        ZipOutputStream(output.buffered()).use { zip ->
+                            val usedNames = mutableSetOf<String>()
+                            itemsToExport.forEachIndexed { index, item ->
+                                val source = vaultRepository.getVaultFile(item)
+                                    ?.takeIf { it.exists() }
+                                    ?: error("File not found: ${item.fileName}")
+                                var entryName = item.fileName.ifBlank { "item_${index + 1}" }
+                                var suffix = 2
+                                while (!usedNames.add(entryName)) {
+                                    entryName = "${item.fileName}_${suffix++}"
+                                }
+                                zip.putNextEntry(ZipEntry(entryName))
+                                source.inputStream().buffered().use { input -> input.copyTo(zip) }
+                                zip.closeEntry()
+                                _uiState.update { state ->
+                                    state.copy(exportProgress = (index + 1) to itemsToExport.size)
+                                }
+                            }
+                        }
+                    } ?: error("Could not write ZIP file")
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        getApplication<Application>().contentResolver.update(
+                            outputUri!!,
+                            ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                            null,
+                            null,
+                        )
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        exportProgress = null,
+                        exportSuccess = true,
+                        exportSuccessMessage = "Exported ZIP to Downloads",
+                        selectionMode = false,
+                        selectedItems = emptySet(),
+                    )
+                }
+            } catch (error: Throwable) {
+                outputUri?.let { uri ->
+                    runCatching { getApplication<Application>().contentResolver.delete(uri, null, null) }
+                }
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        exportProgress = null,
+                        errorMessage = error.message ?: "Could not export ZIP",
+                    )
+                }
             }
         }
     }
@@ -451,21 +560,30 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
      * app, no notification). Clears the multiselect state once dispatched.
      */
     fun sendVaultItemsToChat(itemIds: List<String>, chatId: String) {
+        sendVaultItemsToChats(itemIds, setOf(chatId))
+    }
+
+    /** Sends the same Vault payload to every selected chat. */
+    fun sendVaultItemsToChats(itemIds: List<String>, chatIds: Set<String>) {
         val itemsToSend = itemIds.mapNotNull { id ->
             _uiState.value.items.find { it.id == id }
         }.ifEmpty { return }
+        if (chatIds.isEmpty()) return
         sendJob?.cancel()
-        _uiState.update { it.copy(isSending = true, sendProgress = 0 to itemsToSend.size, errorMessage = null) }
+        val total = itemsToSend.size * chatIds.size
+        _uiState.update { it.copy(isSending = true, sendProgress = 0 to total, errorMessage = null) }
         sendJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             var sent = 0
             var lastError: String? = null
-            itemsToSend.forEach { item ->
-                runCatching { sendVaultItemInternal(item, chatId) }
-                    .onSuccess {
-                        sent++
-                        _uiState.update { it.copy(sendProgress = sent to itemsToSend.size) }
-                    }
-                    .onFailure { lastError = it.message }
+            chatIds.forEach { chatId ->
+                itemsToSend.forEach { item ->
+                    runCatching { sendVaultItemInternal(item, chatId) }
+                        .onSuccess {
+                            sent++
+                            _uiState.update { it.copy(sendProgress = sent to total) }
+                        }
+                        .onFailure { lastError = it.message }
+                }
             }
             _uiState.update {
                 it.copy(
@@ -525,10 +643,12 @@ data class VaultUiState(
     val isSending: Boolean = false,
     val sendProgress: Pair<Int, Int>? = null, // completed/total
     val isExporting: Boolean = false,
+    val exportProgress: Pair<Int, Int>? = null,
     val selectedItem: VaultItem? = null,
     val showChatPicker: Boolean = false,
     val sendSuccess: Boolean = false,
     val exportSuccess: Boolean = false,
+    val exportSuccessMessage: String? = null,
     val errorMessage: String? = null,
     val selectionMode: Boolean = false,
     val selectedItems: Set<String> = emptySet(),

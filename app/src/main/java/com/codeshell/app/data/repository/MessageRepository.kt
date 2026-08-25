@@ -142,6 +142,7 @@ class MessageRepository(
         durationSec: Long? = null,
         callType: CallType = CallType.VOICE,
         callInitiatorId: String,
+        callId: String,
     ): Result<Unit> {
         return try {
             val messageRef = messagesRef(chatId).document()
@@ -158,6 +159,7 @@ class MessageRepository(
                 put(FIELD_DELETED, false)
                 put(FIELD_FILE_NAME, callType.name.lowercase())
                 put(FIELD_CALL_INITIATOR_ID, callInitiatorId)
+                put(FIELD_CALL_ID, callId)
                 durationSec?.let { put(FIELD_FILE_SIZE, it) }
             }
             val preview = sessionLogPreview(callType)
@@ -168,7 +170,6 @@ class MessageRepository(
                 mapOf(
                     ChatRepository.FIELD_LAST_MESSAGE to preview,
                     ChatRepository.FIELD_LAST_MESSAGE_TIME to sentAt,
-                    "unreadCount_$recipientId" to FieldValue.increment(1),
                 )
             )
             batch.commit().await()
@@ -452,6 +453,41 @@ class MessageRepository(
         }
     }
 
+    suspend fun setMessageLiked(chatId: String, messageId: String, liked: Boolean): Result<Unit> {
+        return try {
+            messagesRef(chatId).document(messageId).update(FIELD_LIKED, liked).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getUnreadMessageCount(chatId: String, userId: String): Result<Int> {
+        return try {
+            val snapshot = messagesRef(chatId)
+                .whereEqualTo(FIELD_READ, false)
+                .get()
+                .await()
+            val count = snapshot.documents.count { document ->
+                document.getString(FIELD_SENDER_ID) != userId &&
+                    document.getBoolean(FIELD_DELETED) != true &&
+                    MessageType.from(document.getString(FIELD_TYPE)) != MessageType.SESSION
+            }
+            Result.success(count)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setUnreadCount(chatId: String, userId: String, count: Int): Result<Unit> {
+        return try {
+            chatRef(chatId).update("unreadCount_$userId", count).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getParticipantIds(chatId: String): Result<List<String>> {
         return try {
             val snapshot = chatRef(chatId).get().await()
@@ -508,7 +544,9 @@ class MessageRepository(
             unseenExpiresAt = unseenExpiresAt,
             reply = parseReply(),
             hiddenBy = parseHiddenBy(get(FIELD_HIDDEN_BY)),
+            liked = getBoolean(FIELD_LIKED) == true,
             callInitiatorId = getString(FIELD_CALL_INITIATOR_ID),
+            callId = getString(FIELD_CALL_ID),
         )
     }
 
@@ -543,7 +581,9 @@ class MessageRepository(
         const val FIELD_REPLY_TYPE = "replyType"
         const val FIELD_REPLY_PREVIEW = "replyPreview"
         const val FIELD_CALL_INITIATOR_ID = "callInitiatorId"
+        const val FIELD_CALL_ID = "callId"
         const val FIELD_EDITED_AT = "editedAt"
         const val FIELD_HIDDEN_BY = "hiddenBy"
+        const val FIELD_LIKED = "liked"
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
@@ -35,6 +36,7 @@ fun ChatSlideInItem(
         modifier = modifier,
         enter = if (animate) {
             fadeIn(animationSpec = tween(SLIDE_DURATION_MS)) +
+                scaleIn(initialScale = 0.97f, animationSpec = tween(SLIDE_DURATION_MS)) +
                 slideInVertically(animationSpec = tween(SLIDE_DURATION_MS)) { fullHeight ->
                     fullHeight
                 }

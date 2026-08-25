@@ -5,19 +5,27 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.codeshell.app.data.model.CallType
 import com.codeshell.app.messaging.TerminalNotificationManager
 
 /** Invisible host used when an audio call is accepted from its notification. */
-class BackgroundAudioCallActivity : Activity() {
+class BackgroundAudioCallActivity : ComponentActivity() {
 
     private var callId: String = ""
     private var chatId: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // This Activity is only a lifecycle host for the background call.
+        // It must never intercept touches intended for the visible screen.
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        )
         callId = intent.getStringExtra(EXTRA_CALL_ID).orEmpty()
         chatId = intent.getStringExtra(EXTRA_CHAT_ID).orEmpty()
         if (callId.isBlank() || chatId.isBlank()) {
@@ -57,8 +65,9 @@ class BackgroundAudioCallActivity : Activity() {
         val serviceIntent = Intent(this, CallForegroundService::class.java).apply {
             action = CallForegroundService.ACTION_START_BACKGROUND_AUDIO
             putExtra(CallForegroundService.EXTRA_CALL_ID, callId)
+            putExtra(CallForegroundService.EXTRA_CHAT_ID, chatId)
             putExtra(CallForegroundService.EXTRA_CALL_TYPE, CallType.VOICE.name)
-            putExtra(CallForegroundService.EXTRA_SCREEN_SHARING, false)
+            putExtra(CallForegroundService.EXTRA_SHOW_CALL_CONTROLS, true)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
         finish()

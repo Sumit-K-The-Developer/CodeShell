@@ -21,6 +21,8 @@ import com.codeshell.app.util.ChatInactivityTimeout
 import com.codeshell.app.util.ChatMessageFontScale
 import com.codeshell.app.util.NetworkConnectivity
 import com.codeshell.app.util.UsernameFormatter
+import com.codeshell.app.messaging.TerminalNotificationManager
+import com.codeshell.app.ui.util.DeviceCaptureState
 import com.codeshell.app.util.filterFourDigitCode
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
@@ -95,6 +97,11 @@ class SettingsViewModel(
         viewModelScope.launch {
             appPreferences.newTerminalAlert.collect { enabled ->
                 _uiState.update { it.copy(newTerminalAlert = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.callNotificationControls.collect { enabled ->
+                _uiState.update { it.copy(callNotificationControls = enabled) }
             }
         }
         viewModelScope.launch {
@@ -213,6 +220,19 @@ class SettingsViewModel(
         }
     }
 
+    fun setCallNotificationControls(enabled: Boolean) {
+        viewModelScope.launch {
+            appPreferences.setCallNotificationControls(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
+        }
+    }
+
+    fun ensureCallNotificationControlsDefault(notificationPermissionGranted: Boolean) {
+        viewModelScope.launch {
+            appPreferences.ensureCallNotificationControlsDefault(notificationPermissionGranted)
+        }
+    }
+
     fun setProfilePicturesEnabled(enabled: Boolean) {
         viewModelScope.launch {
             appPreferences.setProfilePicturesEnabled(enabled)
@@ -308,7 +328,11 @@ class SettingsViewModel(
         SharePanelController.apply(getApplication(), enabled)
     }
 
-    fun uploadProfilePhoto(uri: Uri) {
+    fun uploadProfilePhoto(
+        uri: Uri,
+        fullUri: Uri? = null,
+        useCroppedForSharing: Boolean = false,
+    ) {
         val userId = currentUserId ?: return
         if (isOffline()) {
             _uiState.update { it.copy(errorMessage = offlineMessage()) }
@@ -316,9 +340,18 @@ class SettingsViewModel(
         }
         BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             _uiState.update { it.copy(isSavingProfilePhoto = true, errorMessage = null, successMessage = null) }
-            storageRepository.uploadProfilePhoto(userId, uri)
-                .onSuccess { downloadUrl ->
-                    userRepository.updateAvatarUrl(userId, downloadUrl.withAvatarCacheVersion())
+            storageRepository.uploadProfilePhoto(userId, uri, fullUri)
+                .onSuccess { (downloadUrl, fullDownloadUrl) ->
+                    userRepository.updateAvatarUrls(
+                        userId,
+                        downloadUrl.withAvatarCacheVersion(),
+                        fullDownloadUrl?.withAvatarCacheVersion(),
+                        if (useCroppedForSharing) {
+                            downloadUrl.withAvatarCacheVersion()
+                        } else {
+                            (fullDownloadUrl ?: downloadUrl).withAvatarCacheVersion()
+                        },
+                    )
                         .onSuccess {
                             _uiState.update {
                                 it.copy(
@@ -550,14 +583,26 @@ class SettingsViewModel(
                 }
                 return@launch
             }
+            currentUserId?.let { userId ->
+                appPreferences.suspendNewTerminalAlertForAccount(userId)
+            }
+            TerminalNotificationManager.clearAll(getApplication())
+            DeviceCaptureState.disable()
             authRepository.signOut()
             onDeleted()
         }
     }
 
     fun signOut(onSignedOut: () -> Unit) {
-        authRepository.signOut()
-        onSignedOut()
+        viewModelScope.launch {
+            currentUserId?.let { userId ->
+                appPreferences.suspendNewTerminalAlertForAccount(userId)
+            }
+            TerminalNotificationManager.clearAll(getApplication())
+            DeviceCaptureState.disable()
+            authRepository.signOut()
+            onSignedOut()
+        }
     }
 }
 
@@ -573,9 +618,10 @@ data class SettingsUiState(
     val terminateOnLock: Boolean = true,
     val secureTerminalOnly: Boolean = true,
     val chatTitleDoubleTapVaultCapture: Boolean = false,
-    val closeChatOnInactivity: Boolean = true,
+    val closeChatOnInactivity: Boolean = false,
     val chatInactivityTimeoutSeconds: Int = ChatInactivityTimeout.DEFAULT_SECONDS,
     val newTerminalAlert: Boolean = true,
+    val callNotificationControls: Boolean = false,
     val profilePicturesEnabled: Boolean = false,
     val chatWallpaperEnabled: Boolean = true,
     val chatWallpaperOverlay: Int = com.codeshell.app.data.preferences.AppPreferences.CHAT_WALLPAPER_OVERLAY_DEFAULT,

@@ -1,5 +1,6 @@
 package com.codeshell.app.ui.chat
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -69,6 +70,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -108,8 +110,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -144,6 +149,7 @@ import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.OnlineGreen
 import com.codeshell.app.ui.disguise.LearningWebView
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
+import com.codeshell.app.ui.util.DeviceCaptureState
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.ui.components.MediaCropDialog
@@ -193,6 +199,7 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     onNavigateToLearning: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenVault: () -> Unit,
     onOpenMedia: (type: String, url: String, fileName: String?, messageId: String) -> Unit,
     pauseInactivity: Boolean = false,
 ) {
@@ -206,6 +213,7 @@ fun ChatScreen(
     val callViewModel: CallViewModel = viewModel(viewModelStoreOwner = activity) { CallViewModel(app) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val callUiState by callViewModel.uiState.collectAsStateWithLifecycle()
+    val deviceCaptureEnabled by DeviceCaptureState.enabled.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val imageLoader = remember { MediaImageLoader.get(context) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -331,9 +339,13 @@ fun ChatScreen(
                 deleteSource = true,
             ) { result ->
                 scope.launch {
-                    snackbarHostState.showSnackbar(
-                        if (result.isSuccess) "Saved to Vault" else "Could not save screenshot to Vault",
+                    val snackbarResult = snackbarHostState.showSnackbar(
+                        message = if (result.isSuccess) "Saved to Vault" else "Could not save screenshot to Vault",
+                        actionLabel = if (result.isSuccess) context.getString(R.string.view) else null,
                     )
+                    if (result.isSuccess && snackbarResult == SnackbarResult.ActionPerformed) {
+                        onOpenVault()
+                    }
                 }
             }
         }.onFailure { error ->
@@ -380,8 +392,19 @@ fun ChatScreen(
         }
     }
 
-    DisposableEffect(callUiState.isScreenSharing) {
-        if (callUiState.isScreenSharing) {
+    fun toggleDeviceCapture() {
+        val enabled = DeviceCaptureState.toggle()
+        if (!enabled) {
+            Toast.makeText(
+                context,
+                "Ensure the captured content is moved to Vault.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    DisposableEffect(callUiState.isScreenSharing, deviceCaptureEnabled) {
+        if (callUiState.isScreenSharing || deviceCaptureEnabled) {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else if (!BuildConfig.ALLOW_DEMO_CAPTURE) {
             activity.window.setFlags(
@@ -394,6 +417,9 @@ fun ChatScreen(
 
     LaunchedEffect(isCallActive) {
         activity.suppressTerminateOnLock = isCallActive
+        // A live call must keep its ViewModel and WebRTC engine alive when the
+        // user presses Home, even when the disguise normally hides the app.
+        activity.applySuppressHideOnHome(isCallActive)
     }
 
     LaunchedEffect(callUiState.phase, callUiState.callType) {
@@ -795,7 +821,8 @@ fun ChatScreen(
     // LazyColumn remeasure and visibly jumps the content under the finger.
     val messageViewportBottomPadding = inputBarBottomPadding
     val typingExtra = 1
-    val listItemCount = uiState.pendingUploads.size + chatListEntries.size + typingExtra
+    val listItemCount = uiState.pendingUploads.size + chatListEntries.size + typingExtra +
+        if (uiState.expiredUnreadCount > 0) 1 else 0
 
     fun focusTaggedMessage(messageId: String) {
         val entryIndex = chatListEntries.indexOfFirst { entry ->
@@ -906,7 +933,6 @@ fun ChatScreen(
     DisposableEffect(Unit) {
         viewModel.setActiveInChat()
         onDispose {
-            callViewModel.onChatScreenClosed()
             viewModel.clearTyping()
             viewModel.clearActiveInChat()
             setSuppressHideOnHome(false)
@@ -1124,16 +1150,55 @@ fun ChatScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
-                                text = uiState.otherDisplayName.ifBlank {
-                                    stringResource(R.string.terminal_session_title)
-                                }
+                                text = if (BuildConfig.SHELL_FLAVOR == "news") "InLine" else "EnglishShell",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontFamily = if (BuildConfig.SHELL_FLAVOR == "news") {
+                                        FontFamily.SansSerif
+                                    } else {
+                                        FontFamily.Cursive
+                                    },
+                                    fontWeight = if (BuildConfig.SHELL_FLAVOR == "news") {
+                                        FontWeight.Bold
+                                    } else {
+                                        FontWeight.ExtraBold
+                                    },
+                                ),
                             )
+                            Text(
+                                text = "♥",
+                                color = Color(0xFFB84A58),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                            val otherDigits = com.codeshell.app.util.UsernameFormatter.parseRawInput(
+                                uiState.otherDisplayName,
+                            )
+                            if (otherDigits.isNotEmpty()) {
+                                Text(
+                                    text = otherDigits,
+                                    color = chatColors.text.copy(alpha = 0.52f),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontFamily = FontFamily.SansSerif,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
+                                    modifier = Modifier
+                                        .padding(start = 8.dp)
+                                        .pointerInput(deviceCaptureEnabled) {
+                                            detectTapGestures(onLongPress = { toggleDeviceCapture() })
+                                        },
+                                )
+                            }
+                            if (deviceCaptureEnabled) {
+                                Text(
+                                    text = "⚠",
+                                    color = Color(0xFFFFC107),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(start = 3.dp),
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                        }
                     },
                     actions = {
                         ChatTopBarTrailingActions(
@@ -1174,7 +1239,7 @@ fun ChatScreen(
                         com.codeshell.app.data.preferences.AppPreferences.WALLPAPER_SOURCE_VAULT ->
                             uiState.wallpaperVaultImageUri != null
                         else ->
-                            !uiState.otherAvatarUrl.isNullOrBlank()
+                            !(uiState.otherAvatarSharedUrl ?: uiState.otherAvatarUrl).isNullOrBlank()
                     }
                 if (showWallpaper) {
                     when (uiState.wallpaperSource) {
@@ -1191,7 +1256,7 @@ fun ChatScreen(
                         else ->
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
-                                    .data(uiState.otherAvatarUrl)
+                                    .data(uiState.otherAvatarSharedUrl ?: uiState.otherAvatarUrl)
                                     .allowHardware(false)
                                     .build(),
                                 contentDescription = null,
@@ -1234,7 +1299,9 @@ fun ChatScreen(
                     }
                 }
 
-            if (uiState.messages.isEmpty() && uiState.pendingUploads.isEmpty() && !uiState.isOtherTyping) {
+            if (uiState.messages.isEmpty() && uiState.pendingUploads.isEmpty() &&
+                !uiState.isOtherTyping && uiState.expiredUnreadCount == 0
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1304,6 +1371,14 @@ fun ChatScreen(
                         bottom = 8.dp + messageViewportBottomPadding,
                     )
                 ) {
+                    if (uiState.expiredUnreadCount > 0) {
+                        item(key = "expired-unread-banner") {
+                            ExpiredUnreadMessagesLine(
+                                theme = chatTheme,
+                                count = uiState.expiredUnreadCount,
+                            )
+                        }
+                    }
                     item(key = "typing_indicator") {
                         ChatSlideInVisibility(visible = uiState.isOtherTyping) {
                             ChatTypingIndicator(theme = chatTheme)
@@ -1370,6 +1445,7 @@ fun ChatScreen(
                                                 isMine = isMine,
                                                 theme = chatTheme,
                                                 highlighted = highlightedMessageId == message.id,
+                                                liked = message.liked,
                                                 selectionMode = uiState.messageSelectionMode,
                                                 selected = message.id in uiState.selectedMessageIds,
                                                 onLongPress = {
@@ -1382,7 +1458,7 @@ fun ChatScreen(
                                                 onTap = {
                                                     message.reply?.messageId?.let(::focusTaggedMessage)
                                                 },
-                                                onDoubleTap = onNavigateToLearning,
+                                                onDoubleTap = { viewModel.toggleMessageLike(message.id) },
                                                 onOpenMedia = { type, url, fileName, messageId ->
                                                     // Preserve the exact chat
                                                     // viewport while the media
@@ -1532,12 +1608,15 @@ fun ChatScreen(
                 onMinimize = callViewModel::minimizeCall,
                 onExpand = callViewModel::expandCall,
                 onToggleMute = callViewModel::toggleMute,
+                onToggleRemoteAudio = callViewModel::toggleRemoteAudio,
                 onRefreshAudioRoutes = callViewModel::refreshAudioRoutes,
                 onSelectAudioRoute = callViewModel::selectAudioRoute,
                 onToggleVideo = callViewModel::toggleVideo,
                 onSwitchCamera = callViewModel::switchCamera,
                 onRequestScreenShare = { requestScreenShare() },
                 onStopScreenShare = callViewModel::stopScreenShare,
+                deviceCaptureEnabled = deviceCaptureEnabled,
+                onToggleDeviceCapture = { toggleDeviceCapture() },
                 onBindLocalRenderer = callViewModel::bindLocalRenderer,
                 onBindRemoteRenderer = callViewModel::bindRemoteRenderer,
                 onDismissStatus = callViewModel::dismissStatus,
@@ -1561,12 +1640,15 @@ fun ChatScreen(
                 onMinimize = callViewModel::minimizeCall,
                 onExpand = callViewModel::expandCall,
                 onToggleMute = callViewModel::toggleMute,
+                onToggleRemoteAudio = callViewModel::toggleRemoteAudio,
                 onRefreshAudioRoutes = callViewModel::refreshAudioRoutes,
                 onSelectAudioRoute = callViewModel::selectAudioRoute,
                 onToggleVideo = callViewModel::toggleVideo,
                 onSwitchCamera = callViewModel::switchCamera,
                 onRequestScreenShare = { requestScreenShare() },
                 onStopScreenShare = callViewModel::stopScreenShare,
+                deviceCaptureEnabled = deviceCaptureEnabled,
+                onToggleDeviceCapture = { toggleDeviceCapture() },
                 onBindLocalRenderer = callViewModel::bindLocalRenderer,
                 onBindRemoteRenderer = callViewModel::bindRemoteRenderer,
                 onDismissStatus = callViewModel::dismissStatus,
@@ -1773,6 +1855,7 @@ private fun MessageBubble(
     isMine: Boolean,
     theme: ChatTheme,
     highlighted: Boolean,
+    liked: Boolean,
     selectionMode: Boolean,
     selected: Boolean,
     onLongPress: () -> Unit,
@@ -1785,6 +1868,17 @@ private fun MessageBubble(
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
 ) {
     val colors = theme.colors
+    val showLike = liked
+    val likeScale by animateFloatAsState(
+        targetValue = if (showLike) 0.8f else 0.44f,
+        animationSpec = tween(260),
+        label = "messageLikeScale",
+    )
+    val likeAlpha by animateFloatAsState(
+        targetValue = if (showLike) 1f else 0f,
+        animationSpec = tween(260),
+        label = "messageLikeAlpha",
+    )
     val bubbleColor = if (isMine) colors.bubbleMine else colors.bubbleOther
     val alignment = if (isMine) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (theme.useAsymmetricBubbleTail) {
@@ -1854,65 +1948,69 @@ private fun MessageBubble(
             .fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .widthIn(max = theme.bubbleMaxWidth)
                 .wrapContentWidth(align = if (isMine) Alignment.End else Alignment.Start)
-                .graphicsLayer {
-                    scaleX = bubbleScale
-                    scaleY = bubbleScale
-                    alpha = bubbleAlpha
-                }
-                .offset { IntOffset(animatedOffset.roundToInt(), 0) }
-                .border(selectionBorderWidth, selectionBorderColor, shape)
-                .background(bubbleColor, shape)
-                .then(
-                    if (!selectionMode && !message.deleted) {
-                        Modifier.pointerInput(message.id) {
-                            var dragDistance = 0f
-                            detectHorizontalDragGestures(
-                                onDragStart = {
-                                    dragDistance = 0f
-                                    rawDragOffset = 0f
-                                },
-                                onHorizontalDrag = { _, amount ->
-                                    dragDistance += amount
-                                    rawDragOffset = dragDistance.coerceIn(-maxSwipePx, maxSwipePx)
-                                },
-                                onDragEnd = {
-                                    if (abs(dragDistance) >= swipeThresholdPx) {
-                                        onReply()
-                                    }
-                                    dragDistance = 0f
-                                    rawDragOffset = 0f
-                                },
-                                onDragCancel = {
-                                    dragDistance = 0f
-                                    rawDragOffset = 0f
-                                },
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
-                .then(
-                    if (selectionMode && !message.deleted) {
-                        Modifier.clickable { onToggleSelection() }
-                    } else if (!message.deleted) {
-                        Modifier.pointerInput(message.id) {
-                            detectTapGestures(
-                                onTap = { onTap() },
-                                onLongPress = { onLongPress() },
-                                onDoubleTap = { onDoubleTap() },
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
-                .then(contentPadding)
         ) {
+            Column(
+                modifier = Modifier
+                    .wrapContentWidth(align = if (isMine) Alignment.End else Alignment.Start)
+                    .graphicsLayer {
+                        scaleX = bubbleScale
+                        scaleY = bubbleScale
+                        alpha = bubbleAlpha
+                    }
+                    .offset { IntOffset(animatedOffset.roundToInt(), 0) }
+                    .border(selectionBorderWidth, selectionBorderColor, shape)
+                    .background(bubbleColor, shape)
+                    .then(
+                        if (!selectionMode && !message.deleted) {
+                            Modifier.pointerInput(message.id) {
+                                var dragDistance = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        dragDistance = 0f
+                                        rawDragOffset = 0f
+                                    },
+                                    onHorizontalDrag = { _, amount ->
+                                        dragDistance += amount
+                                        rawDragOffset = dragDistance.coerceIn(-maxSwipePx, maxSwipePx)
+                                    },
+                                    onDragEnd = {
+                                        if (abs(dragDistance) >= swipeThresholdPx) {
+                                            onReply()
+                                        }
+                                        dragDistance = 0f
+                                        rawDragOffset = 0f
+                                    },
+                                    onDragCancel = {
+                                        dragDistance = 0f
+                                        rawDragOffset = 0f
+                                    },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .then(
+                        if (selectionMode && !message.deleted) {
+                            Modifier.clickable { onToggleSelection() }
+                        } else if (!message.deleted) {
+                            Modifier.pointerInput(message.id) {
+                                detectTapGestures(
+                                    onTap = { onTap() },
+                                    onLongPress = { onLongPress() },
+                                    onDoubleTap = { onDoubleTap() },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .then(contentPadding)
+            ) {
             Crossfade(
                 targetState = message.deleted,
                 animationSpec = tween(durationMillis = 200),
@@ -1933,6 +2031,7 @@ private fun MessageBubble(
                         theme = theme,
                         onOpenMedia = onOpenMedia,
                         mediaClickEnabled = !selectionMode,
+                        onDoubleTap = onDoubleTap,
                         onLongPress = if (!selectionMode) onLongPress else null,
                         onOpenLink = onOpenLink,
                     )
@@ -1974,6 +2073,25 @@ private fun MessageBubble(
                 if (isMine && !message.deleted) {
                     MessageReceipt(message = message, theme = theme)
                 }
+            }
+            }
+            if (showLike) {
+                Text(
+                    text = "♥",
+                    color = Color(0xFFB84A58).copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .align(if (isMine) Alignment.TopStart else Alignment.TopEnd)
+                        .offset(
+                            x = if (isMine) (-5).dp else 5.dp,
+                            y = (-7).dp,
+                        )
+                        .graphicsLayer {
+                            scaleX = likeScale
+                            scaleY = likeScale
+                            alpha = likeAlpha
+                        },
+                )
             }
         }
     }

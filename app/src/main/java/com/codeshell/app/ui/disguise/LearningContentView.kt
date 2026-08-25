@@ -34,10 +34,10 @@ import com.codeshell.app.ui.disguise.snippets.LearnLesson
 import com.codeshell.app.ui.disguise.snippets.LearnResourceLink
 import com.codeshell.app.ui.disguise.snippets.LearnSection
 import com.codeshell.app.ui.theme.CodeTypography
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.EditorGutter
-import com.codeshell.app.ui.theme.EditorMutedText
-import com.codeshell.app.ui.theme.FabAccent
+import com.codeshell.app.ui.theme.LearningColors.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors.EditorGutter
+import com.codeshell.app.ui.theme.LearningColors.EditorMutedText
+import com.codeshell.app.ui.theme.LearningColors.FabAccent
 import com.codeshell.app.util.SyntaxHighlighter
 
 @Composable

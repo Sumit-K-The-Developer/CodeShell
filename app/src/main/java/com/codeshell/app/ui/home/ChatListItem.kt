@@ -3,13 +3,17 @@ package com.codeshell.app.ui.home
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +46,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -73,7 +78,10 @@ fun ChatListItem(
     onLongPress: () -> Unit,
     onDisguiseTap: () -> Unit,
     onOpenSession: () -> Unit,
+    onIncomingCallTap: () -> Unit = onOpenSession,
     onViewProfilePhoto: () -> Unit = {},
+    swipeToSelect: Boolean = false,
+    interactionDisabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val digits = UsernameFormatter.parseRawInput(chat.otherUsername)
@@ -102,10 +110,23 @@ fun ChatListItem(
                 .build()
         }
     }
+    val rightSwipeThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
+    val tileInteractionSource = remember { MutableInteractionSource() }
+    val tilePressed by tileInteractionSource.collectIsPressedAsState()
+    val tileScale by animateFloatAsState(
+        targetValue = if (tilePressed) 0.985f else 1f,
+        animationSpec = tween(120),
+        label = "tilePressScale",
+    )
 
     Box(
         modifier = modifier
             .aspectRatio(1f)
+            .graphicsLayer {
+                scaleX = tileScale
+                scaleY = tileScale
+                alpha = if (interactionDisabled) 0.42f else 1f
+            }
             .clip(tileShape)
             .background(
                 when {
@@ -120,14 +141,42 @@ fun ChatListItem(
             )
             .then(
                 if (selectionMode) {
-                    Modifier.clickable(onClick = onToggleSelection)
+                    if (swipeToSelect) {
+                        Modifier.clickable(onClick = onToggleSelection)
+                    } else {
+                        Modifier.clickable(onClick = onToggleSelection)
+                    }
                 } else {
                     Modifier.clickableWithHorizontalSwipe(
                         onClick = onDisguiseTap,
                         onSwipe = onOpenSession,
                         onLongClick = onLongPress,
+                        interactionSource = tileInteractionSource,
                     )
                 },
+            )
+            .then(
+                if (selectionMode && swipeToSelect) {
+                    Modifier.pointerInput(rightSwipeThresholdPx) {
+                        var dragDistance = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragDistance = 0f },
+                            onHorizontalDrag = { change, amount ->
+                                dragDistance += amount
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                if (dragDistance >= rightSwipeThresholdPx) {
+                                    onToggleSelection()
+                                }
+                                dragDistance = 0f
+                            },
+                            onDragCancel = { dragDistance = 0f },
+                        )
+                    }
+                } else {
+                    Modifier
+                }
             ),
     ) {
         if (showProfilePicture) {
@@ -214,7 +263,8 @@ fun ChatListItem(
                 callType = incomingCallType,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .clickable(onClick = onIncomingCallTap),
             )
         }
     }

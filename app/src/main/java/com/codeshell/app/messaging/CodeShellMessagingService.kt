@@ -2,6 +2,7 @@ package com.codeshell.app.messaging
 
 import android.util.Log
 import com.codeshell.app.call.PendingCallStore
+import com.codeshell.app.data.model.CallType
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.repository.AuthRepository
 import com.codeshell.app.data.repository.MessageRepository
@@ -32,19 +33,51 @@ class CodeShellMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         CoroutineScope(Dispatchers.IO).launch {
+            // A signed-out device must not surface delayed FCM payloads that
+            // were sent while the account was still active.
+            if (authRepository.currentUser == null) return@launch
+            val type = message.data["type"]
+            val chatId = message.data["chatId"] ?: return@launch
+            if (type == "call_update") {
+                // A missed/declined outcome ends the ringing state remotely; remove
+                // the original action notification before showing the outcome.
+                TerminalNotificationManager.clear(applicationContext, chatId, isCall = true)
+            }
             val alertsEnabled = AppPreferences(applicationContext).newTerminalAlert.first()
             if (!alertsEnabled) return@launch
 
-            val type = message.data["type"]
-            val chatId = message.data["chatId"] ?: return@launch
             when (type) {
                 "incoming_call" -> {
                     val callId = message.data["callId"] ?: return@launch
+                    val callType = CallType.fromStorage(message.data["callType"])
+                    val controlsEnabled = AppPreferences(applicationContext).callNotificationControls.first()
+                    // Call-control notifications remain available on every
+                    // screen when enabled. Only disguised call alerts follow
+                    // the chat-surface suppression rule.
+                    if (!controlsEnabled && NotificationVisibilityStore.shouldSuppressOrdinaryNotifications()) {
+                        return@launch
+                    }
                     PendingCallStore.save(applicationContext, chatId, callId)
-                    TerminalNotificationManager.showCallNotification(applicationContext, chatId)
+                    TerminalNotificationManager.showCallNotification(
+                        context = applicationContext,
+                        chatId = chatId,
+                        callId = callId,
+                        callType = callType,
+                        controlsEnabled = controlsEnabled,
+                    )
                     Log.d(TAG, "Queued incoming call for chat=$chatId")
                 }
+                "call_update" -> {
+                    if (AppPreferences(applicationContext).callNotificationControls.first()) {
+                        TerminalNotificationManager.showCallOutcomeNotification(
+                            context = applicationContext,
+                            callType = CallType.fromStorage(message.data["callType"]),
+                            status = message.data["status"].orEmpty(),
+                        )
+                    }
+                }
                 else -> {
+                    if (NotificationVisibilityStore.shouldSuppressOrdinaryNotifications()) return@launch
                     TerminalNotificationManager.showMessageNotification(applicationContext, chatId)
                     processDeliveryReceipt(chatId, message.data["messageId"])
                     Log.d(TAG, "Updated grouped notification for chat=$chatId")

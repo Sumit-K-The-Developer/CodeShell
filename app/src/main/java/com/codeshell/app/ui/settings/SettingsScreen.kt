@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,9 +42,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +74,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +91,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -113,6 +119,7 @@ import com.codeshell.app.util.ChatInactivityTimeout
 import com.codeshell.app.util.ChatMessageFontScale
 import com.codeshell.app.util.filterFourDigitCode
 import com.codeshell.app.util.findActivity
+import com.codeshell.app.util.downloadFileToCache
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
 import com.codeshell.app.ui.util.TerminalInactivityEffect
 import com.codeshell.app.ui.util.rememberTerminalActivity
@@ -120,6 +127,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val EditorBackground: Color
@@ -150,15 +158,22 @@ fun SettingsScreen(
     val vaultSaveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
     val chatColors = rememberChatColors()
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
     var showSetupAccessCodeDialog by remember { mutableStateOf(false) }
     var showDisableAccessCodeDialog by remember { mutableStateOf(false) }
     var showChangeAccessCodeDialog by remember { mutableStateOf(false) }
     var setupPin by remember { mutableStateOf("") }
     var setupConfirm by remember { mutableStateOf("") }
+    var setupPinVisible by remember { mutableStateOf(false) }
+    var setupConfirmVisible by remember { mutableStateOf(false) }
     var disablePin by remember { mutableStateOf("") }
+    var disablePinVisible by remember { mutableStateOf(false) }
     var changeCurrentPin by remember { mutableStateOf("") }
     var changeNewPin by remember { mutableStateOf("") }
     var changeConfirmPin by remember { mutableStateOf("") }
+    var changeCurrentVisible by remember { mutableStateOf(false) }
+    var changeNewVisible by remember { mutableStateOf(false) }
+    var changeConfirmVisible by remember { mutableStateOf(false) }
     var accessCodeDialogError by remember { mutableStateOf<String?>(null) }
     var profileExpanded by remember { mutableStateOf(false) }
     var securityExpanded by remember { mutableStateOf(false) }
@@ -170,6 +185,9 @@ fun SettingsScreen(
     var profilePhotoWarning by remember { mutableStateOf<String?>(null) }
     var showProfilePhotoViewer by remember { mutableStateOf(false) }
     var profilePhotoSaveRequested by remember { mutableStateOf(false) }
+    var profilePhotoEditUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var profilePhotoEditLoading by remember { mutableStateOf(false) }
+    var profilePhotoUpdating by remember { mutableStateOf(false) }
     var showWallpaperVaultPicker by remember { mutableStateOf(false) }
     var externalProfilePhotoFlowActive by remember { mutableStateOf(false) }
     var notificationPermissionGranted by remember {
@@ -184,7 +202,17 @@ fun SettingsScreen(
     val setupPinFocusRequester = remember { FocusRequester() }
     val setupConfirmFocusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
     val (bumpActivity, activityGeneration) = rememberTerminalActivity()
+
+    LaunchedEffect(uiState.isSavingProfilePhoto, uiState.successMessage, uiState.errorMessage) {
+        if (profilePhotoUpdating &&
+            !uiState.isSavingProfilePhoto &&
+            (uiState.successMessage != null || uiState.errorMessage != null)
+        ) {
+            profilePhotoUpdating = false
+        }
+    }
 
     fun refreshNotificationPermission() {
         notificationPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -202,11 +230,16 @@ fun SettingsScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    LaunchedEffect(notificationPermissionGranted) {
+        viewModel.ensureCallNotificationControlsDefault(notificationPermissionGranted)
+    }
+
     TerminalInactivityEffect(
         onInactivityTimeout,
         activityGeneration,
         uiState.deleteAccountPassword,
         blocked = showDeleteAccountDialog ||
+            showSignOutDialog ||
             showSetupAccessCodeDialog ||
             showDisableAccessCodeDialog ||
             showChangeAccessCodeDialog ||
@@ -500,6 +533,15 @@ fun SettingsScreen(
                         checked = uiState.newTerminalAlert,
                         onCheckedChange = ::onNewTerminalAlertToggle,
                     )
+                    if (uiState.newTerminalAlert) {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.call_notification_controls),
+                            description = stringResource(R.string.call_notification_controls_desc),
+                            checked = uiState.callNotificationControls,
+                            onCheckedChange = viewModel::setCallNotificationControls,
+                            enabled = !uiState.chatAccessCodeEnabled,
+                        )
+                    }
                     if (uiState.newTerminalAlert && !notificationPermissionGranted) {
                         val warningShape = RoundedCornerShape(50)
                         Box(
@@ -625,7 +667,7 @@ fun SettingsScreen(
                         )
                     }
                     TextButton(
-                        onClick = { viewModel.signOut(onSignedOut) },
+                        onClick = { showSignOutDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.sign_out))
@@ -634,6 +676,27 @@ fun SettingsScreen(
             }
             }
         }
+    }
+
+    if (showSignOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            title = { Text(stringResource(R.string.sign_out)) },
+            text = { Text(stringResource(R.string.sign_out_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSignOutDialog = false
+                    viewModel.signOut(onSignedOut)
+                }) {
+                    Text(stringResource(R.string.sign_out))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     if (showSetupAccessCodeDialog) {
@@ -668,7 +731,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (setupPinVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(setupPinVisible) {
+                                setupPinVisible = !setupPinVisible
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(setupPinFocusRequester),
@@ -688,7 +760,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (setupConfirmVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(setupConfirmVisible) {
+                                setupConfirmVisible = !setupConfirmVisible
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 8.dp)
@@ -742,10 +823,14 @@ fun SettingsScreen(
         ProfilePhotoCropDialog(
             sourceUri = sourceUri,
             onDismiss = { pendingProfilePhotoCropUri = null },
-            onCropped = { croppedUri ->
+            onCropped = { photoUris ->
                 pendingProfilePhotoCropUri = null
                 profilePhotoWarning = null
-                viewModel.uploadProfilePhoto(croppedUri)
+                viewModel.uploadProfilePhoto(
+                    photoUris.croppedUri,
+                    photoUris.fullUri,
+                    photoUris.useCroppedForSharing,
+                )
             },
             onTooLarge = {
                 pendingProfilePhotoCropUri = null
@@ -754,7 +839,12 @@ fun SettingsScreen(
         )
     }
 
-    if (showProfilePhotoViewer && !uiState.profile?.avatarUrl.isNullOrBlank()) {
+    // The self viewer shows the cropped avatar used on the tile. The shared
+    // URL is intentionally reserved for the other person's view.
+    val selfProfileViewerUrl = uiState.profile?.avatarUrl
+        ?: uiState.profile?.avatarFullUrl
+    if (showProfilePhotoViewer && !selfProfileViewerUrl.isNullOrBlank()) {
+        var profileViewerLoading by remember(selfProfileViewerUrl) { mutableStateOf(true) }
         Dialog(
             onDismissRequest = { showProfilePhotoViewer = false },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -767,11 +857,20 @@ fun SettingsScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
-                    model = uiState.profile?.avatarUrl,
+                    model = selfProfileViewerUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
+                    onLoading = { profileViewerLoading = true },
+                    onSuccess = { profileViewerLoading = false },
+                    onError = { profileViewerLoading = false },
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (profileViewerLoading) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(42.dp),
+                    )
+                }
                 val saveState = if (profilePhotoSaveRequested) vaultSaveState else null
                 val saveLabel = when (saveState) {
                     is VaultSaveState.Saving -> "Saving…"
@@ -779,24 +878,97 @@ fun SettingsScreen(
                     is VaultSaveState.Error -> "Retry save"
                     null, VaultSaveState.Idle -> "Save"
                 }
-                androidx.compose.material3.Button(
-                    onClick = {
-                        profilePhotoSaveRequested = true
-                        vaultViewModel.saveToVault(
-                            url = uiState.profile?.avatarUrl.orEmpty(),
-                            fileName = "profile_picture.jpg",
-                            mimeType = "image/jpeg",
-                        )
-                    },
-                    enabled = saveState !is VaultSaveState.Saving,
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(saveLabel)
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            profilePhotoEditLoading = true
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    downloadFileToCache(
+                                        context,
+                                        uiState.profile?.avatarFullUrl ?: uiState.profile?.avatarUrl.orEmpty(),
+                                        "profile_edit_source.jpg",
+                                    )
+                                }
+                                profilePhotoEditLoading = false
+                                result.onSuccess { file -> profilePhotoEditUri = Uri.fromFile(file) }
+                                    .onFailure { profilePhotoWarning = "Could not open profile picture editor" }
+                            }
+                        },
+                        enabled = !profilePhotoEditLoading && !profilePhotoUpdating && saveState !is VaultSaveState.Saving,
+                    ) {
+                        if (profilePhotoEditLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit))
+                        }
+                    }
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            profilePhotoSaveRequested = true
+                            vaultViewModel.saveToVault(
+                                url = uiState.profile?.avatarUrl.orEmpty(),
+                                fileName = "profile_picture.jpg",
+                                mimeType = "image/jpeg",
+                            )
+                        },
+                        enabled = !profilePhotoUpdating && saveState !is VaultSaveState.Saving,
+                    ) {
+                        Text(saveLabel)
+                    }
+                }
+                if (profilePhotoUpdating) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 72.dp)
+                            .background(
+                                Color.Black.copy(alpha = 0.78f),
+                                RoundedCornerShape(24.dp),
+                            )
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text("Updating", color = Color.White)
+                    }
                 }
             }
         }
+    }
+
+    profilePhotoEditUri?.let { sourceUri ->
+        ProfilePhotoCropDialog(
+            sourceUri = sourceUri,
+            confirmLabel = "Update",
+            onDismiss = { profilePhotoEditUri = null },
+            onCropped = { photoUris ->
+                profilePhotoEditUri = null
+                profilePhotoUpdating = true
+                viewModel.uploadProfilePhoto(
+                    photoUris.croppedUri,
+                    photoUris.fullUri,
+                    photoUris.useCroppedForSharing,
+                )
+            },
+            onTooLarge = {
+                profilePhotoEditUri = null
+                profilePhotoWarning = context.getString(R.string.profile_picture_too_large)
+            },
+        )
     }
 
     if (showWallpaperVaultPicker) {
@@ -834,7 +1006,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (disablePinVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(disablePinVisible) {
+                                disablePinVisible = !disablePinVisible
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = EditorDefaultText,
@@ -902,7 +1083,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (changeCurrentVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(changeCurrentVisible) {
+                                changeCurrentVisible = !changeCurrentVisible
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = EditorDefaultText,
@@ -920,7 +1110,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (changeNewVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(changeNewVisible) {
+                                changeNewVisible = !changeNewVisible
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 8.dp),
@@ -940,7 +1139,16 @@ fun SettingsScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.NumberPassword
                         ),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (changeConfirmVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            AccessCodeVisibilityIcon(changeConfirmVisible) {
+                                changeConfirmVisible = !changeConfirmVisible
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 8.dp),
@@ -1257,59 +1465,9 @@ private fun ChatWallpaperSettingsSection(
                 steps = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (chatId != null) {
-                Text(
-                    text = stringResource(R.string.chat_wallpaper_source),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = EditorDefaultText,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilterChip(
-                        selected = source == AppPreferences.WALLPAPER_SOURCE_AVATAR,
-                        onClick = { onSourceChange(AppPreferences.WALLPAPER_SOURCE_AVATAR) },
-                        label = { Text(stringResource(R.string.chat_wallpaper_source_avatar)) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            selectedLabelColor = EditorDefaultText,
-                            labelColor = EditorDefaultText.copy(alpha = 0.8f),
-                        ),
-                    )
-                    FilterChip(
-                        selected = source == AppPreferences.WALLPAPER_SOURCE_VAULT,
-                        onClick = { onSourceChange(AppPreferences.WALLPAPER_SOURCE_VAULT) },
-                        label = { Text(stringResource(R.string.chat_wallpaper_source_vault)) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            selectedLabelColor = EditorDefaultText,
-                            labelColor = EditorDefaultText.copy(alpha = 0.8f),
-                        ),
-                    )
-                }
-                if (source == AppPreferences.WALLPAPER_SOURCE_VAULT) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = onOpenVaultPicker) {
-                            Text(stringResource(R.string.chat_wallpaper_choose_vault))
-                        }
-                        if (hasVaultWallpaper) {
-                            TextButton(onClick = onClearVaultWallpaper) {
-                                Text(
-                                    stringResource(R.string.chat_wallpaper_clear_vault),
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
-                    }
+            if (source == AppPreferences.WALLPAPER_SOURCE_VAULT) {
+                TextButton(onClick = onClearVaultWallpaper) {
+                    Text("Use profile picture wallpaper")
                 }
             }
         }
@@ -1531,31 +1689,33 @@ private fun SettingsToggleRow(
     description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 16.dp)
-            .clickable(onClick = { onCheckedChange(!checked) }),
+            .clickable(enabled = enabled, onClick = { onCheckedChange(!checked) }),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = EditorDefaultText,
+                color = EditorDefaultText.copy(alpha = if (enabled) 1f else 0.5f),
             )
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
-                color = EditorDefaultText.copy(alpha = 0.62f),
+                color = EditorDefaultText.copy(alpha = if (enabled) 0.62f else 0.35f),
                 modifier = Modifier.padding(top = 2.dp, end = 12.dp),
             )
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = if (enabled) onCheckedChange else null,
+            enabled = enabled,
         )
     }
 }
@@ -1651,5 +1811,18 @@ private fun chatInterfaceStyleLabel(style: ChatInterfaceStyle): String {
         ChatInterfaceStyle.VINTAGE -> stringResource(R.string.chat_interface_style_vintage)
         ChatInterfaceStyle.IDE -> stringResource(R.string.chat_interface_style_ide)
         ChatInterfaceStyle.IDE_LIGHT -> stringResource(R.string.chat_interface_style_ide_light)
+    }
+}
+
+@Composable
+private fun AccessCodeVisibilityIcon(
+    visible: Boolean,
+    onToggle: () -> Unit,
+) {
+    IconButton(onClick = onToggle) {
+        Icon(
+            imageVector = if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+            contentDescription = if (visible) "Hide access code" else "Show access code",
+        )
     }
 }

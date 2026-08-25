@@ -2,6 +2,7 @@ package com.codeshell.app.ui.call
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CallMade
+import androidx.compose.material.icons.filled.CallReceived
+import androidx.compose.material.icons.filled.PauseCircleOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PlayArrow
@@ -29,6 +35,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -47,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,18 +76,22 @@ fun CallOverlay(
     onMinimize: () -> Unit,
     onExpand: () -> Unit,
     onToggleMute: () -> Unit,
+    onToggleRemoteAudio: () -> Unit,
     onRefreshAudioRoutes: () -> Unit,
     onSelectAudioRoute: (CallAudioRouteType) -> Unit,
     onToggleVideo: () -> Unit,
     onSwitchCamera: () -> Unit,
     onRequestScreenShare: () -> Unit,
     onStopScreenShare: () -> Unit,
+    deviceCaptureEnabled: Boolean = false,
+    onToggleDeviceCapture: () -> Unit = {},
     onBindLocalRenderer: (SurfaceViewRenderer) -> Unit,
     onBindRemoteRenderer: (SurfaceViewRenderer) -> Unit,
     onDismissStatus: () -> Unit,
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val callerDisplayName = uiState.otherDisplayName.replace("#", "❤️")
     when (uiState.phase) {
         CallUiPhase.Hidden -> Unit
         CallUiPhase.StatusMessage -> {
@@ -141,13 +153,27 @@ fun CallOverlay(
                             localPreviewOnly = localPreviewOnly,
                             onBindLocalRenderer = onBindLocalRenderer,
                             onBindRemoteRenderer = onBindRemoteRenderer,
+                            onToggleDeviceCapture = onToggleDeviceCapture,
                         )
                     }
 
                     if (showVideoSurfaces) {
+                        if (deviceCaptureEnabled) {
+                            Text(
+                                text = "⚠",
+                                color = Color(0xFFFFC107),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .statusBarsPadding()
+                                    .padding(top = 18.dp),
+                            )
+                        }
                         if (uiState.phase == CallUiPhase.InCall) {
                             FilledIconButton(
-                                onClick = if (uiState.isScreenSharing) onStopScreenShare else onRequestScreenShare,
+                                onClick = {
+                                    if (uiState.isScreenSharing) onStopScreenShare() else onRequestScreenShare()
+                                },
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
                                     .statusBarsPadding()
@@ -197,6 +223,14 @@ fun CallOverlay(
                                 .align(Alignment.TopCenter)
                                 .statusBarsPadding(),
                         )
+                        if (uiState.phase == CallUiPhase.InCall) {
+                            CallDirectionStatus(
+                                uiState = uiState,
+                                colors = colors,
+                                onDarkBackground = true,
+                                modifier = Modifier.align(Alignment.TopCenter),
+                            )
+                        }
                     }
                     if (!showVideoSurfaces) {
                         FilledIconButton(
@@ -228,14 +262,32 @@ fun CallOverlay(
                         },
                     ) {
                         if (!showVideoSurfaces || uiState.phase != CallUiPhase.InCall) {
-                            Text(
-                                text = uiState.otherDisplayName.ifBlank {
-                                    stringResource(R.string.terminal_session_title)
-                                },
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = if (showVideoSurfaces) Color.White else colors.text,
-                                textAlign = TextAlign.Center,
+                            CallDirectionStatus(
+                                uiState = uiState,
+                                colors = colors,
+                                onDarkBackground = showVideoSurfaces,
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = callerDisplayName.ifBlank {
+                                        stringResource(R.string.terminal_session_title)
+                                    },
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = if (showVideoSurfaces) Color.White else colors.text,
+                                    textAlign = TextAlign.Center,
+                                )
+                                if (deviceCaptureEnabled) {
+                                    Text(
+                                        text = "⚠",
+                                        color = Color(0xFFFFC107),
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             if (!showVideoSurfaces) {
                                 CallStatusDisplay(
@@ -258,6 +310,7 @@ fun CallOverlay(
                             onDecline = onDecline,
                             onEndCall = onEndCall,
                             onToggleMute = onToggleMute,
+                            onToggleRemoteAudio = onToggleRemoteAudio,
                             onRefreshAudioRoutes = onRefreshAudioRoutes,
                             onSelectAudioRoute = onSelectAudioRoute,
                             onToggleVideo = onToggleVideo,
@@ -316,7 +369,9 @@ private fun MiniCallTile(
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 Text(
-                    text = uiState.otherDisplayName.ifBlank { stringResource(R.string.terminal_session_title) },
+                    text = uiState.otherDisplayName.replace("#", "❤️").ifBlank {
+                        stringResource(R.string.terminal_session_title)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White,
                     maxLines = 1,
@@ -388,7 +443,9 @@ private fun MinimizedAudioBanner(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = uiState.otherDisplayName.ifBlank { stringResource(R.string.terminal_session_title) },
+                    text = uiState.otherDisplayName.replace("#", "❤️").ifBlank {
+                        stringResource(R.string.terminal_session_title)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White,
                     maxLines = 1,
@@ -450,12 +507,64 @@ private fun CallStatusDisplay(
 }
 
 @Composable
+private fun CallDirectionStatus(
+    uiState: CallUiState,
+    colors: ChatThemeColors,
+    onDarkBackground: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val textColor = if (onDarkBackground) Color.White.copy(alpha = 0.9f) else colors.mutedText
+    val directionText = stringResource(
+        if (uiState.isOutgoing) R.string.call_direction_outgoing else R.string.call_direction_incoming,
+    )
+    val directionIcon = if (uiState.isOutgoing) Icons.Default.CallMade else Icons.Default.CallReceived
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(directionIcon, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+            Text(directionText, color = textColor, style = MaterialTheme.typography.labelMedium)
+        }
+        if (uiState.isScreenSharePaused) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Default.PauseCircleOutline, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                Text(stringResource(R.string.call_screen_sharing_paused), color = textColor, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        if (uiState.isRemoteAudioMuted) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Default.VolumeOff, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                Text(stringResource(R.string.call_sound_off), color = textColor, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
 private fun VideoCallSurfaces(
     localPreviewOnly: Boolean,
     onBindLocalRenderer: (SurfaceViewRenderer) -> Unit,
     onBindRemoteRenderer: (SurfaceViewRenderer) -> Unit,
+    onToggleDeviceCapture: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = { onToggleDeviceCapture() })
+            },
+    ) {
         if (localPreviewOnly) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -493,6 +602,7 @@ private fun CallControlRow(
     onDecline: () -> Unit,
     onEndCall: () -> Unit,
     onToggleMute: () -> Unit,
+    onToggleRemoteAudio: () -> Unit,
     onRefreshAudioRoutes: () -> Unit,
     onSelectAudioRoute: (CallAudioRouteType) -> Unit,
     onToggleVideo: () -> Unit,
@@ -531,6 +641,37 @@ private fun CallControlRow(
                     ),
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.call_accept_action))
+                }
+            }
+            CallUiPhase.OutgoingRinging -> {
+                FilledIconButton(
+                    onClick = onToggleMute,
+                    modifier = Modifier.size(52.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = controlBg),
+                ) {
+                    Icon(
+                        imageVector = if (uiState.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                        contentDescription = stringResource(R.string.call_toggle_mute),
+                        tint = if (uiState.isMuted) controlTint.copy(alpha = 0.45f) else controlTint,
+                    )
+                }
+                AudioRouteButton(
+                    uiState = uiState,
+                    colors = colors,
+                    controlBg = controlBg,
+                    controlTint = controlTint,
+                    onRefreshAudioRoutes = onRefreshAudioRoutes,
+                    onSelectAudioRoute = onSelectAudioRoute,
+                    onToggleRemoteAudio = onToggleRemoteAudio,
+                )
+                FilledIconButton(
+                    onClick = onEndCall,
+                    modifier = Modifier.size(64.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Icon(Icons.Default.Stop, contentDescription = stringResource(R.string.call_end_action))
                 }
             }
             CallUiPhase.InCall -> {
@@ -584,6 +725,7 @@ private fun CallControlRow(
                     controlTint = controlTint,
                     onRefreshAudioRoutes = onRefreshAudioRoutes,
                     onSelectAudioRoute = onSelectAudioRoute,
+                    onToggleRemoteAudio = onToggleRemoteAudio,
                 )
                 FilledIconButton(
                     onClick = onEndCall,
@@ -618,22 +760,14 @@ private fun AudioRouteButton(
     controlTint: Color,
     onRefreshAudioRoutes: () -> Unit,
     onSelectAudioRoute: (CallAudioRouteType) -> Unit,
+    onToggleRemoteAudio: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         FilledIconButton(
             onClick = {
                 onRefreshAudioRoutes()
-                if (uiState.hasExternalAudioRoute) {
-                    expanded = true
-                } else {
-                    val nextRoute = if (uiState.selectedAudioRoute == CallAudioRouteType.SPEAKER) {
-                        CallAudioRouteType.EARPIECE
-                    } else {
-                        CallAudioRouteType.SPEAKER
-                    }
-                    onSelectAudioRoute(nextRoute)
-                }
+                expanded = true
             },
             modifier = Modifier.size(52.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
@@ -644,11 +778,25 @@ private fun AudioRouteButton(
                 },
             ),
         ) {
-            Icon(
-                imageVector = Icons.Default.VolumeUp,
-                contentDescription = stringResource(R.string.call_audio_route),
-                tint = controlTint,
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (uiState.isRemoteAudioMuted) {
+                        Icons.Default.VolumeOff
+                    } else {
+                        Icons.Default.VolumeUp
+                    },
+                    contentDescription = stringResource(R.string.call_audio_route),
+                    tint = controlTint,
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = controlTint,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(14.dp),
+                )
+            }
         }
         DropdownMenu(
             expanded = expanded,
@@ -657,20 +805,32 @@ private fun AudioRouteButton(
             uiState.audioRoutes.forEach { route ->
                 DropdownMenuItem(
                     text = {
-                        Text(
-                            text = if (route.type == uiState.selectedAudioRoute) {
-                                stringResource(R.string.call_audio_route_selected, route.label)
-                            } else {
-                                route.label
-                            },
-                        )
+                        Text(text = route.label)
                     },
+                    trailingIcon = if (!uiState.isRemoteAudioMuted && route.type == uiState.selectedAudioRoute) {
+                        { Icon(Icons.Default.Check, contentDescription = null, tint = colors.accent) }
+                    } else null,
                     onClick = {
                         onSelectAudioRoute(route.type)
                         expanded = false
                     },
                 )
             }
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(R.string.call_audio_route_turn_off_sound),
+                        color = if (uiState.isRemoteAudioMuted) colors.accent else colors.text,
+                    )
+                },
+                trailingIcon = if (uiState.isRemoteAudioMuted) {
+                    { Icon(Icons.Default.Check, contentDescription = null, tint = colors.accent) }
+                } else null,
+                onClick = {
+                    if (!uiState.isRemoteAudioMuted) onToggleRemoteAudio()
+                    expanded = false
+                },
+            )
         }
     }
 }

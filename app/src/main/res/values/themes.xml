@@ -5,4 +5,11 @@
         <item name="android:navigationBarColor">#1E1E1E</item>
         <item name="android:windowBackground">#1E1E1E</item>
     </style>
+    <style name="Theme.CodeShell.BackgroundCall" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorAccent">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
 </resources>

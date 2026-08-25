@@ -7,6 +7,8 @@ data class ChatSummary(
     val otherUserId: String,
     val otherUsername: String = "",
     val otherAvatarUrl: String? = null,
+    val otherAvatarFullUrl: String? = null,
+    val otherAvatarSharedUrl: String? = null,
     val lastMessage: String = "",
     val lastMessageTime: Timestamp? = null,
     val unreadCount: Int = 0,

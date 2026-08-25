@@ -14,7 +14,10 @@ import androidx.core.content.ContextCompat
 import com.codeshell.app.BuildConfig
 import com.codeshell.app.MainActivity
 import com.codeshell.app.R
+import com.codeshell.app.data.model.CallType
 import com.codeshell.app.data.news.NewsCache
+import com.codeshell.app.call.BackgroundAudioCallActivity
+import com.codeshell.app.receiver.CallNotificationActionReceiver
 import com.codeshell.app.receiver.NotificationDismissReceiver
 
 object TerminalNotificationManager {
@@ -59,10 +62,29 @@ object TerminalNotificationManager {
         )
     }
 
-    fun showCallNotification(context: Context, chatId: String) {
+    fun showCallNotification(
+        context: Context,
+        chatId: String,
+        callId: String,
+        callType: CallType,
+        controlsEnabled: Boolean,
+    ) {
         val appContext = context.applicationContext
         ensureChannel(appContext)
-        val flavored = newsFlavoredBody(appContext, R.string.terminal_alert_call_body, prefixLive = true)
+        val fallback = if (controlsEnabled) {
+            if (callType == CallType.VIDEO) {
+                R.string.call_notification_incoming_video
+            } else {
+                R.string.call_notification_incoming_audio
+            }
+        } else {
+            R.string.terminal_alert_call_body
+        }
+        val flavored = if (controlsEnabled) {
+            FlavoredBody(appContext.getString(fallback), null, null, null)
+        } else {
+            newsFlavoredBody(appContext, fallback, prefixLive = true)
+        }
         postNotification(
             context = appContext,
             chatId = chatId,
@@ -72,6 +94,47 @@ object TerminalNotificationManager {
             newsCategoryId = flavored.categoryId,
             newsRegionCc = flavored.regionCc,
             count = 1,
+            callId = callId,
+            callType = callType,
+            controlsEnabled = controlsEnabled,
+        )
+    }
+
+    fun showCallOutcomeNotification(context: Context, callType: CallType, status: String) {
+        val appContext = context.applicationContext
+        ensureChannel(appContext)
+        val body = when (status.lowercase()) {
+            "declined" -> appContext.getString(R.string.call_outcome_declined)
+            "missed" -> appContext.getString(R.string.call_outcome_missed)
+            "not_answered" -> appContext.getString(R.string.call_outcome_not_answered)
+            else -> return
+        }
+        if (!canPostNotifications(appContext)) return
+        // The backend uses "missed" for the receiver and
+        // "not_answered"/"declined" for the caller. Keep the direction in
+        // the heading instead of presenting every outcome as outgoing.
+        val isIncomingOutcome = status.equals("missed", ignoreCase = true)
+        val title = when {
+            isIncomingOutcome && callType == CallType.VIDEO ->
+                appContext.getString(R.string.video_call_incoming_indicator)
+            isIncomingOutcome ->
+                appContext.getString(R.string.call_incoming_indicator)
+            callType == CallType.VIDEO ->
+                appContext.getString(R.string.video_call_outgoing_indicator)
+            else ->
+                appContext.getString(R.string.call_outgoing_indicator)
+        }
+        NotificationManagerCompat.from(appContext).notify(
+            ("call-outcome:$status:${callType.name}").hashCode() and 0x7FFFFFFF,
+            NotificationCompat.Builder(appContext, CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .build(),
         )
     }
 
@@ -128,6 +191,15 @@ object TerminalNotificationManager {
         clear(context, chatId, isCall = true)
     }
 
+    fun clearAll(context: Context) {
+        NotificationManagerCompat.from(context.applicationContext).cancelAll()
+        context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
+
     private fun postNotification(
         context: Context,
         chatId: String,
@@ -137,10 +209,18 @@ object TerminalNotificationManager {
         newsCategoryId: String?,
         newsRegionCc: String?,
         count: Int,
+        callId: String? = null,
+        callType: CallType = CallType.VOICE,
+        controlsEnabled: Boolean = false,
     ) {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (isCall) {
+            if (isCall && controlsEnabled && !callId.isNullOrBlank()) {
+                putExtra(EXTRA_DIRECT_CALL, true)
+                putExtra(EXTRA_CHAT_ID, chatId)
+                putExtra(EXTRA_CALL_ID, callId)
+                putExtra(EXTRA_CALL_TYPE, callType.name)
+            } else if (isCall) {
                 putExtra(EXTRA_OPEN_LEARNING, true)
             } else {
                 putExtra(EXTRA_OPEN_LEARNING, true)
@@ -191,8 +271,69 @@ object TerminalNotificationManager {
                 },
             )
 
+        if (isCall && controlsEnabled && !callId.isNullOrBlank()) {
+            builder
+                .addAction(
+                    android.R.drawable.ic_media_play,
+                    context.getString(R.string.call_notification_connect),
+                    callActionIntent(context, ACTION_CONNECT_CALL, chatId, callId, callType, 20_001),
+                )
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    context.getString(R.string.call_notification_reject),
+                    callActionIntent(context, ACTION_REJECT_CALL, chatId, callId, callType, 20_002),
+                )
+        }
+
         if (!canPostNotifications(context)) return
         NotificationManagerCompat.from(context).notify(notificationId(chatId, isCall), builder.build())
+    }
+
+    private fun callActionIntent(
+        context: Context,
+        action: String,
+        chatId: String,
+        callId: String,
+        callType: CallType,
+        requestCode: Int,
+    ): PendingIntent {
+        if (action == ACTION_CONNECT_CALL) {
+            val intent = if (callType == CallType.VOICE) {
+                Intent(context, BackgroundAudioCallActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra(BackgroundAudioCallActivity.EXTRA_CHAT_ID, chatId)
+                    putExtra(BackgroundAudioCallActivity.EXTRA_CALL_ID, callId)
+                }
+            } else {
+                // Video Connect must open the visible caller screen so the
+                // existing permission and accept flow can run in the activity.
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra(EXTRA_DIRECT_CALL, true)
+                    putExtra(EXTRA_CHAT_ID, chatId)
+                    putExtra(EXTRA_CALL_ID, callId)
+                    putExtra(EXTRA_CALL_TYPE, callType.name)
+                }
+            }
+            return PendingIntent.getActivity(
+                context,
+                requestCode + notificationId(chatId, true),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+        val intent = Intent(context, CallNotificationActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_CHAT_ID, chatId)
+            putExtra(EXTRA_CALL_ID, callId)
+            putExtra(EXTRA_CALL_TYPE, callType.name)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private fun canPostNotifications(context: Context): Boolean {

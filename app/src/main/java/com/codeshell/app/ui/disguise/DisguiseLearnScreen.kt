@@ -10,8 +10,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -43,8 +46,9 @@ import com.codeshell.app.ui.components.CodeShellTopBar
 import com.codeshell.app.ui.disguise.snippets.LearnManifest
 import com.codeshell.app.ui.news.NewsScreen
 import com.codeshell.app.ui.news.NewsViewModel
-import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors.EditorBackground
+import com.codeshell.app.ui.theme.LearningColors.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -70,12 +74,27 @@ fun DisguiseLearnScreen(
         return
     }
 
-    DisguiseLearnContent(
-        manifest = loadedManifest,
-        onSecretEntry = onSecretEntry,
-        onOpenNewsAi = onOpenNewsAi,
-        modifier = modifier,
-    )
+    val parentColorScheme = MaterialTheme.colorScheme
+    val learningColorScheme = if (LearningColors.isGrammar) {
+        lightColorScheme(
+            primary = Color(0xFF3D6BAA),
+            background = Color(0xFFFAF8F5),
+            surface = Color(0xFFFAF8F5),
+            onBackground = Color(0xFF1A2B4A),
+            onSurface = Color(0xFF1A2B4A),
+        )
+    } else {
+        parentColorScheme
+    }
+
+    MaterialTheme(colorScheme = learningColorScheme) {
+        DisguiseLearnContent(
+            manifest = loadedManifest,
+            onSecretEntry = onSecretEntry,
+            onOpenNewsAi = onOpenNewsAi,
+            modifier = modifier,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -185,6 +204,7 @@ private fun DisguiseLearnContent(
                             }
                         } else null,
                         isNewsRefreshing = isNewsFlavor && newsUiState.isRefreshing,
+                        useLearningTheme = true,
                     )
                     HorizontalDivider(color = EditorDefaultText.copy(alpha = 0.1f))
                     TopicTopBar(

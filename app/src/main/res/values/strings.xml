@@ -126,6 +126,8 @@
     <string name="message_removed_for_everyone">This line was removed for everyone.</string>
     <string name="new_terminal_alert">New Terminal alert</string>
     <string name="new_terminal_alert_desc">Show a notification when a new session message arrives.</string>
+    <string name="call_notification_controls">Show call notification with controls</string>
+    <string name="call_notification_controls_desc">Show Connect and Reject controls for incoming audio and video calls.</string>
     <string name="share_panel_enabled">Show in share panel</string>
     <string name="share_panel_enabled_desc">Allow sharing links and videos to CodeShell from other apps.</string>
     <string name="profile_picture_section">Profile picture</string>
@@ -157,6 +159,7 @@
     <string name="profile_picture_crop_use">Use crop</string>
     <string name="profile_picture_too_large">Cropped image is larger than 5 MB. Choose a smaller image or crop tighter.</string>
     <string name="profile_picture_saved">Profile picture updated</string>
+    <string name="profile_photo_use_cropped_for_sharing">Use cropped area for sharing</string>
     <string name="profile_picture_removed">Profile picture removed</string>
     <string name="profile_picture_save_failed">Could not update profile picture</string>
     <string name="pending_share_title">Choose a session to share</string>
@@ -168,6 +171,7 @@
     <string name="send_to_chat">Send to Chat</string>
     <string name="save_to_vault">Save to Vault</string>
     <string name="saved_to_vault">Saved to Vault</string>
+    <string name="view">View</string>
     <string name="vault_send_hint">Select a tile to send.</string>
     <string name="draft_ready_to_send">Ready to send</string>
     <string name="terminal_alert_channel">Terminal alerts</string>
@@ -180,6 +184,7 @@
     <string name="blocked_users">Blocked users</string>
     <string name="unblock">Unblock</string>
     <string name="sign_out">Sign out</string>
+    <string name="sign_out_confirm">Are you sure you want to sign out?</string>
     <string name="edit">Edit</string>
     <string name="rotate">Rotate</string>
     <string name="recording_voice">Recording…</string>
@@ -266,7 +271,11 @@
     <string name="call_toggle_mute">Toggle mute</string>
     <string name="call_toggle_speaker">Toggle speaker</string>
     <string name="call_audio_route">Audio output</string>
-    <string name="call_audio_route_selected">%1$s selected</string>
+    <string name="call_audio_route_turn_off_sound">Turn off sound</string>
+    <string name="call_direction_incoming">Incoming</string>
+    <string name="call_direction_outgoing">Outgoing</string>
+    <string name="call_screen_sharing_paused">Screen sharing paused</string>
+    <string name="call_sound_off">Sound off</string>
     <string name="call_toggle_video">Toggle camera</string>
     <string name="call_switch_camera">Switch camera</string>
     <string name="call_minimize">Minimize call</string>
@@ -304,6 +313,16 @@
     <string name="video_call_ended_by_remote">Live Connect ended by the other user</string>
     <string name="call_incoming_indicator">Incoming voice call</string>
     <string name="video_call_incoming_indicator">Incoming video call</string>
+    <string name="call_outgoing_indicator">Outgoing voice call</string>
+    <string name="video_call_outgoing_indicator">Outgoing video call</string>
+    <string name="call_notification_incoming_audio">Incoming audio call</string>
+    <string name="call_notification_incoming_video">Incoming video call</string>
+    <string name="call_notification_connect">Connect</string>
+    <string name="call_notification_reject">Reject</string>
+    <string name="call_notification_disconnect">Disconnect</string>
+    <string name="call_outcome_declined">Connection was declined</string>
+    <string name="call_outcome_missed">Missed Connection</string>
+    <string name="call_outcome_not_answered">Not answered</string>
     <string name="call_incoming_other_chat">Incoming Voice Connect in another chat</string>
     <string name="video_call_incoming_other_chat">Incoming Live Connect in another chat</string>
     <string name="call_duration">%1$s</string>
@@ -315,6 +334,8 @@
     <string name="dismiss">Dismiss</string>
     <string name="learning_session_channel">Learning session</string>
     <string name="learning_session_channel_desc">Keeps an active learning session running in the background</string>
+    <string name="call_notification_channel">Ongoing call</string>
+    <string name="call_notification_channel_desc">Shows the active call status and controls</string>
     <string name="learning_session_active_title">Learning session active</string>
     <string name="learning_session_active_body">Tap to return to your lesson</string>
 
@@ -362,6 +383,7 @@
     <string name="vault_empty_hint">Tap + to add media from the gallery, or save media from sessions.</string>
     <string name="move_to_gallery">Move to Gallery</string>
     <string name="copy_to_gallery">Copy to Gallery</string>
+    <string name="export_as_zip">Export as zip</string>
     <string name="delete_vault_item_title">Delete vault item?</string>
     <string name="delete_vault_item_message">Delete "%1$s"? You can undo this for a few seconds.</string>
     <string name="delete_vault_items_message">Delete %1$d selected vault items? You can undo this for a few seconds.</string>
@@ -371,7 +393,7 @@
     <string name="copy_vault_item_message">Copy "%1$s" to your Gallery? The Vault copy will remain.</string>
     <string name="copy_vault_items_message">Copy %1$d selected items to your Gallery? The Vault copies will remain.</string>
     <string name="vault_no_more_items">No more items</string>
-    <string name="moved_to_gallery">Moved to gallery</string>
+    <string name="moved_to_gallery">Copied to gallery</string>
     <string name="could_not_load_media">Could not load media</string>
     <string name="deleted_item">Deleted %1$s</string>
     <string name="deleted_one_item">Deleted 1 item</string>

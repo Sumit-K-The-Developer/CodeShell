@@ -3,6 +3,7 @@ package com.codeshell.app.ui.util
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.getValue
@@ -50,12 +51,15 @@ fun Modifier.clickableWithHorizontalSwipe(
     onSwipe: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     minSwipeDistance: Dp = 48.dp,
+    swipeRightOnly: Boolean = false,
     enabled: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
 ): Modifier = composed {
     if (!enabled) return@composed this
 
     val minDistancePx = with(LocalDensity.current) { minSwipeDistance.toPx() }
     var dragDistance by remember { mutableFloatStateOf(0f) }
+    val source = interactionSource ?: remember { MutableInteractionSource() }
 
     this
         .pointerInput(minDistancePx) {
@@ -63,7 +67,8 @@ fun Modifier.clickableWithHorizontalSwipe(
                 onDragStart = { dragDistance = 0f },
                 onHorizontalDrag = { _, amount -> dragDistance += amount },
                 onDragEnd = {
-                    if (abs(dragDistance) >= minDistancePx) {
+                    val meetsDirection = !swipeRightOnly || dragDistance >= minDistancePx
+                    if (abs(dragDistance) >= minDistancePx && meetsDirection) {
                         onSwipe()
                     }
                     dragDistance = 0f
@@ -74,12 +79,19 @@ fun Modifier.clickableWithHorizontalSwipe(
         .then(
             if (onLongClick != null) {
                 Modifier.combinedClickable(
+                    interactionSource = source,
+                    indication = null,
                     enabled = enabled,
                     onClick = onClick,
                     onLongClick = onLongClick,
                 )
             } else {
-                Modifier.clickable(enabled = enabled, onClick = onClick)
+                Modifier.clickable(
+                    interactionSource = source,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                )
             }
         )
 }

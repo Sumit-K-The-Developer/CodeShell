@@ -46,9 +46,11 @@ class WebRtcCallEngine(
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var peerConnection: PeerConnection? = null
     private var remoteVideoTrack: VideoTrack? = null
+    private var remoteAudioTrack: AudioTrack? = null
     private var localRenderer: SurfaceViewRenderer? = null
     private var remoteRenderer: SurfaceViewRenderer? = null
     private var isMuted = false
+    private var isRemoteAudioEnabled = true
     private var isVideoEnabled = true
     private var isFrontCamera = true
     private var isScreenSharing = false
@@ -109,6 +111,9 @@ class WebRtcCallEngine(
                     remoteRenderer?.let { renderer ->
                         track.addSink(renderer)
                     }
+                } else if (track is AudioTrack) {
+                    remoteAudioTrack = track
+                    track.setEnabled(isRemoteAudioEnabled)
                 }
             }
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
@@ -196,6 +201,11 @@ class WebRtcCallEngine(
     }
 
     fun isMuted(): Boolean = isMuted
+
+    fun setRemoteAudioEnabled(enabled: Boolean) {
+        isRemoteAudioEnabled = enabled
+        remoteAudioTrack?.setEnabled(enabled)
+    }
 
     fun setVideoEnabled(enabled: Boolean) {
         if (isScreenSharing) return
@@ -310,6 +320,7 @@ class WebRtcCallEngine(
         videoTrack = null
         videoSource = null
         remoteVideoTrack = null
+        remoteAudioTrack = null
         audioTrack.dispose()
         audioSource.dispose()
         factory.dispose()

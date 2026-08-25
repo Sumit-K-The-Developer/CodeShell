@@ -95,6 +95,7 @@ fun MessageBubbleContent(
     onOpenMedia: (MessageType, String, String?, String) -> Unit,
     theme: ChatTheme,
     mediaClickEnabled: Boolean = true,
+    onDoubleTap: () -> Unit = {},
     onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
@@ -131,6 +132,7 @@ fun MessageBubbleContent(
         theme = theme,
         imageLoader = imageLoader,
         mediaClickEnabled = mediaClickEnabled,
+        onDoubleTap = onDoubleTap,
         onLongPress = onLongPress,
         onOpenLink = onOpenLink,
     )
@@ -156,6 +158,7 @@ private fun MessageBody(
     theme: ChatTheme,
     imageLoader: ImageLoader,
     mediaClickEnabled: Boolean,
+    onDoubleTap: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
@@ -193,6 +196,7 @@ private fun MessageBody(
                             null
                         },
                         onLongClick = onLongPress,
+                        onDoubleTap = onDoubleTap,
                     )
                 } else {
                     MediaPlaceholderRow(
@@ -232,6 +236,7 @@ private fun MessageBody(
                             null
                         },
                         onLongClick = onLongPress,
+                        onDoubleTap = onDoubleTap,
                     )
                 } else {
                     MediaPlaceholderRow(
@@ -281,6 +286,7 @@ private fun MessageBody(
                         null
                     },
                     onLongClick = onLongPress,
+                    onDoubleTap = onDoubleTap,
                 )
             )
         }
@@ -308,6 +314,7 @@ private fun MessageBody(
                                 null
                             },
                             onLongClick = onLongPress,
+                            onDoubleTap = onDoubleTap,
                         )
                     )
             ) {
@@ -558,20 +565,21 @@ private fun mediaInteractionModifier(
     enabled: Boolean = true,
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)? = null,
 ): Modifier = when {
-    onClick != null && onLongClick != null ->
+    onClick != null ->
         Modifier.combinedClickable(
             enabled = enabled,
             onClick = onClick,
             onLongClick = onLongClick,
+            onDoubleClick = onDoubleTap,
         )
-    onClick != null ->
-        Modifier.clickable(enabled = enabled, onClick = onClick)
     onLongClick != null ->
         Modifier.combinedClickable(
             enabled = enabled,
             onClick = {},
             onLongClick = onLongClick,
+            onDoubleClick = onDoubleTap,
         )
     else -> Modifier
 }
@@ -593,6 +601,7 @@ private fun ChatMediaPreview(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(previewCorner)
     val minWidth = if (compact) 120.dp else 160.dp
@@ -629,6 +638,7 @@ private fun ChatMediaPreview(
                     enabled = true,
                     onClick = onClick,
                     onLongClick = onLongClick,
+                    onDoubleTap = onDoubleTap,
                 )
             )
     ) {

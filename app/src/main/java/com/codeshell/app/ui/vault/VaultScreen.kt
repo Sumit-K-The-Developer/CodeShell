@@ -8,6 +8,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -128,11 +129,15 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.codeshell.app.R
 import com.codeshell.app.data.model.ChatInterfaceStyle
+import com.codeshell.app.data.model.ChatSummary
 import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.ui.chat.ChatAccessLockOverlay
 import com.codeshell.app.ui.chat.rememberAdaptiveChatTheme
 import com.codeshell.app.ui.components.MediaCropDialog
+import com.codeshell.app.ui.components.ProfilePhotoCropDialog
+import com.codeshell.app.ui.home.HomeViewModel
+import com.codeshell.app.ui.settings.SettingsViewModel
 import com.codeshell.app.util.findActivity
 import com.codeshell.app.util.ChatAccessCodeHasher
 import com.codeshell.app.ui.util.TerminalInactivityEffect
@@ -193,11 +198,15 @@ fun VaultScreen(
     onNavigateToHomeForVaultSend: (() -> Unit)? = null,
     onInactivityTimeout: () -> Unit = onNavigateBack,
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as android.app.Application
     val viewModel: VaultViewModel = viewModel()
+    val settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel(app) }
+    val homeViewModel: HomeViewModel = viewModel { HomeViewModel(app) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val settingsUiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val appPreferences = remember { AppPreferences(context.applicationContext) }
     val accessCodeEnabled by appPreferences.chatAccessCodeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val selectedChatStyle by appPreferences.chatInterfaceStyle.collectAsStateWithLifecycle(
@@ -209,6 +218,8 @@ fun VaultScreen(
     val vaultAccessUnlocked by VaultAccessSession.unlocked.collectAsStateWithLifecycle()
     var vaultAccessDigits by remember { mutableStateOf("") }
     var vaultAccessError by remember { mutableStateOf<String?>(null) }
+    var profilePhotoUpdating by remember { mutableStateOf(false) }
+    var profilePhotoSaveStarted by remember { mutableStateOf(false) }
     // Resolve the host activity so we can suppress the secure-exit (hide-on-home)
     // feature while an external media picker is showing. Without this, opening
     // the system photo picker triggers onUserLeaveHint() which finishes the
@@ -230,6 +241,8 @@ fun VaultScreen(
     var showCopySelectionConfirmation by remember { mutableStateOf(false) }
     var editingImageItem by remember { mutableStateOf<VaultItem?>(null) }
     var editingImageUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingProfilePhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var wallpaperTargetItem by remember { mutableStateOf<VaultItem?>(null) }
     var activityGeneration by remember { mutableIntStateOf(0) }
 
     val touchActivityModifier = Modifier.pointerInput(Unit) {
@@ -281,6 +294,23 @@ fun VaultScreen(
 
     LaunchedEffect(Unit) {
         viewModel.loadItems()
+    }
+
+    LaunchedEffect(
+        profilePhotoUpdating,
+        settingsUiState.isSavingProfilePhoto,
+        settingsUiState.successMessage,
+        settingsUiState.errorMessage,
+    ) {
+        if (profilePhotoUpdating && settingsUiState.isSavingProfilePhoto) {
+            profilePhotoSaveStarted = true
+        }
+        if (profilePhotoUpdating && profilePhotoSaveStarted && !settingsUiState.isSavingProfilePhoto) {
+            profilePhotoUpdating = false
+            profilePhotoSaveStarted = false
+            val message = settingsUiState.successMessage ?: settingsUiState.errorMessage
+            message?.let { snackbarHostState.showSnackbar(it) }
+        }
     }
 
     LaunchedEffect(editingImageItem?.id) {
@@ -420,6 +450,14 @@ fun VaultScreen(
                                         showCopySelectionConfirmation = true
                                     },
                                     enabled = !uiState.isExporting
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.export_as_zip)) },
+                                    onClick = {
+                                        showSelectionMenu = false
+                                        viewModel.exportSelectedAsZip()
+                                    },
+                                    enabled = !uiState.isExporting,
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.delete)) },
@@ -611,7 +649,6 @@ fun VaultScreen(
             onUserActivity = { activityGeneration++ },
             onDismiss = { viewModel.selectItem(null) },
             onDelete = {
-                viewModel.selectItem(null)
                 pendingDeleteItem = item
             },
             onSend = {
@@ -620,17 +657,116 @@ fun VaultScreen(
                 showSendConfirmationDialog = true
             },
             onMoveToGallery = {
-                viewModel.selectItem(null)
                 pendingMoveItem = item
             },
             onCopyToGallery = {
-                viewModel.selectItem(null)
                 pendingCopyItem = item
             },
             onEditImage = {
                 viewModel.selectItem(null)
                 editingImageItem = item
             },
+            onSetProfilePhoto = {
+                scope.launch { snackbarHostState.showSnackbar("Profile picture setup started") }
+                scope.launch {
+                    pendingProfilePhotoUri = withContext(Dispatchers.IO) {
+                        viewModel.getVaultFile(item)?.let(Uri::fromFile)
+                    }
+                }
+            },
+            onSetWallpaper = {
+                scope.launch { snackbarHostState.showSnackbar("Wallpaper setup started") }
+                wallpaperTargetItem = item
+            },
+        )
+    }
+
+    pendingProfilePhotoUri?.let { sourceUri ->
+        ProfilePhotoCropDialog(
+            sourceUri = sourceUri,
+            onDismiss = { pendingProfilePhotoUri = null },
+            onCropped = { photoUris ->
+                pendingProfilePhotoUri = null
+                profilePhotoUpdating = true
+                settingsViewModel.uploadProfilePhoto(
+                    photoUris.croppedUri,
+                    photoUris.fullUri,
+                    photoUris.useCroppedForSharing,
+                )
+            },
+            onTooLarge = { pendingProfilePhotoUri = null },
+        )
+    }
+
+    if (profilePhotoUpdating) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = 72.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.78f),
+                            RoundedCornerShape(24.dp),
+                        )
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text("Updating", color = Color.White)
+                }
+            }
+            if (uiState.exportProgress != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = "Exporting ZIP ${uiState.exportProgress!!.first}/${uiState.exportProgress!!.second}",
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    LinearProgressIndicator(
+                        progress = {
+                            uiState.exportProgress!!.first.toFloat() /
+                                uiState.exportProgress!!.second.coerceAtLeast(1)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    wallpaperTargetItem?.let { item ->
+        WallpaperTargetPickerDialog(
+            chats = homeViewModel.uiState.collectAsStateWithLifecycle().value.chats,
+            onSelect = { chat ->
+                wallpaperTargetItem = null
+                scope.launch {
+                    appPreferences.setChatWallpaperVaultId(chat.chatId, item.id)
+                    appPreferences.setChatWallpaperSource(chat.chatId, AppPreferences.WALLPAPER_SOURCE_VAULT)
+                    appPreferences.setChatWallpaperEnabled(true)
+                    snackbarHostState.showSnackbar("Wallpaper set")
+                }
+            },
+            onDismiss = { wallpaperTargetItem = null },
         )
     }
 
@@ -642,7 +778,16 @@ fun VaultScreen(
             confirmButton = {
                 TextButton(onClick = {
                     pendingDeleteItem = null
+                    val deletedIndex = uiState.items.indexOfFirst { it.id == item.id }
+                    val replacement = uiState.items
+                        .getOrNull(deletedIndex + 1)
+                        ?: uiState.items.getOrNull(deletedIndex - 1)
                     performDelete(item)
+                    if (replacement != null) {
+                        viewModel.selectItem(replacement)
+                    } else {
+                        viewModel.selectItem(null)
+                    }
                 }) {
                     Text(stringResource(R.string.delete))
                 }
@@ -851,8 +996,12 @@ fun VaultScreen(
     }
 
     if (uiState.exportSuccess) {
-        LaunchedEffect(Unit) {
-            snackbarHostState.showSnackbar(context.getString(R.string.moved_to_gallery))
+        LaunchedEffect(uiState.exportSuccessMessage) {
+            Toast.makeText(
+                context,
+                uiState.exportSuccessMessage ?: context.getString(R.string.moved_to_gallery),
+                Toast.LENGTH_SHORT,
+            ).show()
             viewModel.clearError()
         }
     }
@@ -1050,12 +1199,15 @@ private fun VaultItemViewerDialog(
     onMoveToGallery: () -> Unit,
     onCopyToGallery: () -> Unit,
     onEditImage: () -> Unit,
+    onSetProfilePhoto: () -> Unit,
+    onSetWallpaper: () -> Unit,
 ) {
     var loading by remember(item.id) { mutableStateOf(true) }
     var bitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var videoFile by remember(item.id) { mutableStateOf<java.io.File?>(null) }
     var filePath by remember(item.id) { mutableStateOf<String?>(null) }
     var showOptionsMenu by remember { mutableStateOf(false) }
+    var showImageUseMenu by remember { mutableStateOf(false) }
     var showChrome by remember(item.id) { mutableStateOf(true) }
     var slideDirection by remember { mutableIntStateOf(1) }
     var edgeDirection by remember { mutableIntStateOf(0) }
@@ -1344,7 +1496,8 @@ private fun VaultItemViewerDialog(
                         )
                         if (item.isImage) {
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 IconButton(
@@ -1368,16 +1521,6 @@ private fun VaultItemViewerDialog(
                                     )
                                 }
                                 IconButton(
-                                    onClick = onSend,
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Send,
-                                        contentDescription = stringResource(R.string.send_to_chat),
-                                        tint = Color.White,
-                                    )
-                                }
-                                IconButton(
                                     onClick = onEditImage,
                                     modifier = Modifier.size(40.dp),
                                 ) {
@@ -1397,6 +1540,35 @@ private fun VaultItemViewerDialog(
                                         tint = Color.White,
                                     )
                                 }
+                                Box {
+                                    IconButton(
+                                        onClick = { showImageUseMenu = true },
+                                        modifier = Modifier.size(40.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Use",
+                                            tint = Color.White,
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = showImageUseMenu,
+                                        onDismissRequest = { showImageUseMenu = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.send_to_chat)) },
+                                            onClick = { showImageUseMenu = false; onSend() },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Set as profile picture") },
+                                            onClick = { showImageUseMenu = false; onSetProfilePhoto() },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Set as wallpaper") },
+                                            onClick = { showImageUseMenu = false; onSetWallpaper() },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1404,6 +1576,39 @@ private fun VaultItemViewerDialog(
             }
         }
     }
+}
+
+@Composable
+private fun WallpaperTargetPickerDialog(
+    chats: List<ChatSummary>,
+    onSelect: (ChatSummary) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Set wallpaper for") },
+        text = {
+            if (chats.isEmpty()) {
+                Text("No chats available")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    chats.forEach { chat ->
+                        TextButton(
+                            onClick = { onSelect(chat) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = chat.otherUsername.ifBlank { chat.otherUserId },
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Start,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 object VaultAccessSession {

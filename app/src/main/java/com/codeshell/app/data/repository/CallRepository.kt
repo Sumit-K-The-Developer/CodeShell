@@ -75,6 +75,14 @@ class CallRepository(
         }
     }
 
+    suspend fun getCall(callId: String): Result<VoiceCall?> {
+        return try {
+            Result.success(callRef(callId).get().await().toVoiceCall())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun saveOffer(callId: String, offer: SessionDescriptionData): Result<Unit> {
         return try {
             callRef(callId).update(
@@ -170,6 +178,51 @@ class CallRepository(
                     call.chatId to call.callType
                 }?.toMap().orEmpty()
                 trySend(incoming)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun observeActiveCallsForCallee(calleeId: String): Flow<Map<String, CallType>> = callbackFlow {
+        val activeStates = listOf(
+            VoiceCallState.RINGING.name.lowercase(),
+            VoiceCallState.ACCEPTED.name.lowercase(),
+            VoiceCallState.CONNECTING.name.lowercase(),
+            VoiceCallState.IN_CALL.name.lowercase(),
+        )
+        val registration = firestore.collection(COLLECTION_CALLS)
+            .whereEqualTo(FIELD_CALLEE_ID, calleeId)
+            .whereIn(FIELD_STATE, activeStates)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val active = snapshot?.documents?.mapNotNull { doc ->
+                    val call = doc.toVoiceCall() ?: return@mapNotNull null
+                    call.chatId to call.callType
+                }?.toMap().orEmpty()
+                trySend(active)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun observeActiveCallForCalleeChat(calleeId: String, chatId: String): Flow<VoiceCall?> = callbackFlow {
+        val activeStates = listOf(
+            VoiceCallState.ACCEPTED.name.lowercase(),
+            VoiceCallState.CONNECTING.name.lowercase(),
+            VoiceCallState.IN_CALL.name.lowercase(),
+        )
+        val registration = firestore.collection(COLLECTION_CALLS)
+            .whereEqualTo(FIELD_CALLEE_ID, calleeId)
+            .whereEqualTo(FIELD_CHAT_ID, chatId)
+            .whereIn(FIELD_STATE, activeStates)
+            .limit(1)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.documents?.firstOrNull()?.toVoiceCall())
             }
         awaitClose { registration.remove() }
     }

@@ -47,8 +47,10 @@ fun SessionLogCard(
             message.sessionDurationSec()?.let { formatSessionDuration(it) }
                 ?: stringResource(R.string.session_log_completed_short)
         }
-        SessionLogStatus.MISSED -> stringResource(R.string.session_log_missed)
-        SessionLogStatus.DECLINED -> stringResource(R.string.session_log_declined)
+        SessionLogStatus.MISSED -> stringResource(
+            if (isMine) R.string.call_outcome_not_answered else R.string.call_outcome_missed,
+        )
+        SessionLogStatus.DECLINED -> stringResource(R.string.call_outcome_declined)
         SessionLogStatus.FAILED -> stringResource(R.string.session_log_failed)
     }
     val labelStyle = if (theme.useMonospaceText) {

@@ -32,7 +32,7 @@ class AppPreferences(private val context: Context) {
     }
 
     val closeChatOnInactivity: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[CLOSE_CHAT_ON_INACTIVITY] ?: true
+        prefs[CLOSE_CHAT_ON_INACTIVITY] ?: false
     }
 
     val chatInactivityTimeoutSeconds: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -43,6 +43,12 @@ class AppPreferences(private val context: Context) {
 
     val newTerminalAlert: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[NEW_TERMINAL_ALERT] ?: true
+    }
+
+    val callNotificationControls: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        (prefs[NEW_TERMINAL_ALERT] ?: true) &&
+            !(prefs[CHAT_ACCESS_CODE_ENABLED] ?: false) &&
+            (prefs[CALL_NOTIFICATION_CONTROLS] ?: false)
     }
 
     val profilePicturesEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -116,6 +122,37 @@ class AppPreferences(private val context: Context) {
     suspend fun setNewTerminalAlert(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[NEW_TERMINAL_ALERT] = enabled
+        }
+    }
+
+    /** Disables alerts while signed out while preserving this account's choice. */
+    suspend fun suspendNewTerminalAlertForAccount(userId: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[NEW_TERMINAL_ALERT] ?: true
+            prefs[newTerminalAlertAccountKey(userId)] = current
+            prefs[NEW_TERMINAL_ALERT] = false
+        }
+    }
+
+    /** Restores the saved alert choice after this account signs in again. */
+    suspend fun restoreNewTerminalAlertForAccount(userId: String) {
+        context.dataStore.edit { prefs ->
+            prefs[NEW_TERMINAL_ALERT] = prefs[newTerminalAlertAccountKey(userId)] ?: true
+        }
+    }
+
+    suspend fun setCallNotificationControls(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[CALL_NOTIFICATION_CONTROLS] = enabled && !(prefs[CHAT_ACCESS_CODE_ENABLED] ?: false)
+        }
+    }
+
+    suspend fun ensureCallNotificationControlsDefault(notificationPermissionGranted: Boolean) {
+        if (!notificationPermissionGranted) return
+        context.dataStore.edit { prefs ->
+            if ((prefs[CHAT_ACCESS_CODE_ENABLED] ?: false) || CALL_NOTIFICATION_CONTROLS !in prefs) {
+                prefs[CALL_NOTIFICATION_CONTROLS] = false
+            }
         }
     }
 
@@ -221,6 +258,9 @@ class AppPreferences(private val context: Context) {
     suspend fun setChatAccessCodeEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[CHAT_ACCESS_CODE_ENABLED] = enabled
+            if (enabled) {
+                prefs[CALL_NOTIFICATION_CONTROLS] = false
+            }
         }
     }
 
@@ -244,6 +284,7 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs.remove(CHAT_ACCESS_CODE_HASH)
             prefs[CHAT_ACCESS_CODE_ENABLED] = false
+            prefs[CALL_NOTIFICATION_CONTROLS] = false
         }
     }
 
@@ -258,6 +299,38 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             val current = prefs[key] ?: emptySet()
             prefs[key] = current + messageIds
+        }
+    }
+
+    suspend fun getLikedMessageIds(chatId: String): Set<String> {
+        return context.dataStore.data.first()[likedMessagesKey(chatId)] ?: emptySet()
+    }
+
+    suspend fun setMessageLiked(chatId: String, messageId: String, liked: Boolean) {
+        val key = likedMessagesKey(chatId)
+        context.dataStore.edit { prefs ->
+            val current = prefs[key] ?: emptySet()
+            prefs[key] = if (liked) current + messageId else current - messageId
+        }
+    }
+
+    suspend fun getHiddenChatIdsForAccount(userId: String): Set<String> {
+        return context.dataStore.data.first()[hiddenChatsKey(userId)] ?: emptySet()
+    }
+
+    suspend fun addHiddenChatIdsForAccount(userId: String, chatIds: Collection<String>) {
+        if (chatIds.isEmpty()) return
+        val key = hiddenChatsKey(userId)
+        context.dataStore.edit { prefs ->
+            prefs[key] = (prefs[key] ?: emptySet()) + chatIds
+        }
+    }
+
+    suspend fun removeHiddenChatIdForAccount(userId: String, chatId: String) {
+        val key = hiddenChatsKey(userId)
+        context.dataStore.edit { prefs ->
+            val updated = (prefs[key] ?: emptySet()) - chatId
+            if (updated.isEmpty()) prefs.remove(key) else prefs[key] = updated
         }
     }
 
@@ -284,11 +357,20 @@ class AppPreferences(private val context: Context) {
 
     private fun hiddenMessagesKey(chatId: String) = stringSetPreferencesKey("hidden_messages_$chatId")
 
+    private fun hiddenChatsKey(userId: String) = stringSetPreferencesKey(
+        "hidden_chats_${userId.replace(Regex("[^A-Za-z0-9_-]"), "_")}"
+    )
+
+    private fun likedMessagesKey(chatId: String) = stringSetPreferencesKey("liked_messages_$chatId")
+
     private fun chatDraftKey(chatId: String) = stringPreferencesKey("chat_draft_$chatId")
 
     private fun wallpaperSourceKey(chatId: String) = stringPreferencesKey("chat_wallpaper_source_$chatId")
 
     private fun wallpaperVaultKey(chatId: String) = stringPreferencesKey("chat_wallpaper_vault_$chatId")
+
+    private fun newTerminalAlertAccountKey(userId: String) =
+        booleanPreferencesKey("new_terminal_alert_account_${userId.replace(Regex("[^A-Za-z0-9_-]"), "_")}")
 
     companion object {
         const val DEFAULT_DIALER_CODE = "7777"
@@ -307,6 +389,7 @@ class AppPreferences(private val context: Context) {
         private val CLOSE_CHAT_ON_INACTIVITY = booleanPreferencesKey("close_chat_on_inactivity")
         private val CHAT_INACTIVITY_TIMEOUT_SECONDS = intPreferencesKey("chat_inactivity_timeout_seconds")
         private val NEW_TERMINAL_ALERT = booleanPreferencesKey("new_terminal_alert")
+        private val CALL_NOTIFICATION_CONTROLS = booleanPreferencesKey("call_notification_controls")
         private val PROFILE_PICTURES_ENABLED = booleanPreferencesKey("profile_pictures_enabled")
         private val CHAT_WALLPAPER_ENABLED = booleanPreferencesKey("chat_wallpaper_enabled")
         private val CHAT_WALLPAPER_OVERLAY = intPreferencesKey("chat_wallpaper_overlay")

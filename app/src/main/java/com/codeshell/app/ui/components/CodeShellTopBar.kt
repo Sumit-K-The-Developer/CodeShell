@@ -34,6 +34,7 @@ import com.codeshell.app.BuildConfig
 import com.codeshell.app.R
 import com.codeshell.app.ui.theme.EditorDefaultText
 import com.codeshell.app.ui.theme.FabAccent
+import com.codeshell.app.ui.theme.LearningColors
 import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.ui.util.tapOrDoubleTap
 
@@ -49,13 +50,17 @@ fun CodeShellTopBar(
     onRegionToggleChange: ((Boolean) -> Unit)? = null,
     onNewsRefresh: (() -> Unit)? = null,
     isNewsRefreshing: Boolean = false,
+    useLearningTheme: Boolean = false,
 ) {
+    val topBarTextColor = if (useLearningTheme) LearningColors.EditorDefaultText else EditorDefaultText
+    val topBarBackground = if (useLearningTheme) LearningColors.TopBarBackground else TopBarBackground
     val showSecretToggle = secretChipDoubleTapEnabled != null && onToggleSecretChipDoubleTap != null
     val isNewsMode = onNewsRefresh != null
     val titleColor = when {
-        !showSecretToggle -> EditorDefaultText
+        !showSecretToggle -> topBarTextColor
         secretChipDoubleTapEnabled == true -> {
-            if (BuildConfig.SHELL_FLAVOR == "grammar") FabAccent else Color.White
+            if (useLearningTheme) LearningColors.FabAccent
+            else if (BuildConfig.SHELL_FLAVOR == "grammar") FabAccent else Color.White
         }
         else -> SecretEntryDisabledColor
     }
@@ -96,7 +101,7 @@ fun CodeShellTopBar(
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh",
-                        tint = EditorDefaultText,
+                        tint = topBarTextColor,
                         modifier = Modifier.graphicsLayer { rotationZ = refreshRotation },
                     )
                 }
@@ -116,21 +121,22 @@ fun CodeShellTopBar(
                     RegionTextToggle(
                         checked = regionToggleChecked,
                         onToggle = onRegionToggleChange,
+                        textColor = topBarTextColor,
                     )
                 }
                 if (!isNewsMode) {
                     Icon(
                         imageVector = Icons.Default.Star,
                         contentDescription = null,
-                        tint = EditorDefaultText,
+                        tint = topBarTextColor,
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
             }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = TopBarBackground,
-            titleContentColor = EditorDefaultText
+            containerColor = topBarBackground,
+            titleContentColor = topBarTextColor
         )
     )
 }
@@ -139,6 +145,7 @@ fun CodeShellTopBar(
 private fun RegionTextToggle(
     checked: Boolean,
     onToggle: (Boolean) -> Unit,
+    textColor: Color,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -146,7 +153,7 @@ private fun RegionTextToggle(
             text = "INDIA",
             fontSize = 9.sp,
             fontWeight = if (!checked) FontWeight.Bold else FontWeight.Normal,
-            color = if (!checked) EditorDefaultText else EditorDefaultText.copy(alpha = 0.4f),
+            color = if (!checked) textColor else textColor.copy(alpha = 0.4f),
             modifier = Modifier
                 .clickable { if (checked) onToggle(false) }
                 .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -155,7 +162,7 @@ private fun RegionTextToggle(
             text = "INTL",
             fontSize = 9.sp,
             fontWeight = if (checked) FontWeight.Bold else FontWeight.Normal,
-            color = if (checked) EditorDefaultText else EditorDefaultText.copy(alpha = 0.4f),
+            color = if (checked) textColor else textColor.copy(alpha = 0.4f),
             modifier = Modifier
                 .clickable { if (!checked) onToggle(true) }
                 .padding(horizontal = 4.dp, vertical = 2.dp),

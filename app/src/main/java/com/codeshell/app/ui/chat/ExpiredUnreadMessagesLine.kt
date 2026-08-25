@@ -10,9 +10,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun ExpiredUnreadMessagesLine(theme: ChatTheme) {
+fun ExpiredUnreadMessagesLine(theme: ChatTheme, count: Int) {
     Text(
-        text = "Messages expired unread",
+        text = "${count} unread messages expired",
         color = theme.colors.mutedText,
         style = MaterialTheme.typography.bodySmall,
         textAlign = TextAlign.Center,

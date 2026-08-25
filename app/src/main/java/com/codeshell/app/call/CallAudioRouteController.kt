@@ -31,15 +31,21 @@ class CallAudioRouteController(context: Context) {
 
     fun availableRoutes(): List<CallAudioRoute> {
         val routes = mutableListOf(
-            CallAudioRoute(CallAudioRouteType.EARPIECE, "Earpiece"),
+            CallAudioRoute(CallAudioRouteType.EARPIECE, "Phone"),
             CallAudioRoute(CallAudioRouteType.SPEAKER, "Speaker"),
         )
         val outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        if (outputDevices.any { it.isWiredOutput() }) {
-            routes += CallAudioRoute(CallAudioRouteType.WIRED_HEADSET, "Wired headset")
+        outputDevices.firstOrNull { it.isWiredOutput() }?.let { device ->
+            routes += CallAudioRoute(
+                CallAudioRouteType.WIRED_HEADSET,
+                device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Headset",
+            )
         }
-        if (outputDevices.any { it.isBluetoothOutput() }) {
-            routes += CallAudioRoute(CallAudioRouteType.BLUETOOTH, "Bluetooth")
+        outputDevices.firstOrNull { it.isBluetoothOutput() }?.let { device ->
+            routes += CallAudioRoute(
+                CallAudioRouteType.BLUETOOTH,
+                device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth",
+            )
         }
         return routes.distinctBy { it.type }
     }

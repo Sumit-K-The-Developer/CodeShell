@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.data.repository.AuthRepository
+import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.ui.components.filterDigitUsernameInput
 import com.codeshell.app.util.NetworkConnectivity
 import com.codeshell.app.util.UsernameValidator
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 class LoginViewModel(
     application: Application,
     private val authRepository: AuthRepository = AuthRepository(),
+    private val appPreferences: AppPreferences = AppPreferences(application),
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -54,7 +56,12 @@ class LoginViewModel(
             val result = authRepository.signIn(state.username, state.password)
             _uiState.update { it.copy(isLoading = false) }
             result.fold(
-                onSuccess = { onSuccess() },
+                onSuccess = {
+                    authRepository.currentUser?.uid?.let { userId ->
+                        appPreferences.restoreNewTerminalAlertForAccount(userId)
+                    }
+                    onSuccess()
+                },
                 onFailure = { error ->
                     _uiState.update { it.copy(errorMessage = error.message ?: "Login failed") }
                 }

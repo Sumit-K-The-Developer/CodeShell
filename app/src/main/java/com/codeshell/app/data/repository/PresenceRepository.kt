@@ -137,7 +137,6 @@ class PresenceRepository(
 
         fun isOnline(presence: PresenceState, thresholdMs: Long = DEFAULT_ONLINE_THRESHOLD_MS): Boolean {
             if (presence.online == false) return false
-            if (presence.activeInChat.isNotEmpty()) return true
             val lastSeen = presence.lastSeen ?: return false
             val ageMs = System.currentTimeMillis() - lastSeen.toDate().time
             return ageMs in 0..thresholdMs

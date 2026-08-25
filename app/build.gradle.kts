@@ -66,7 +66,9 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("Boolean", "ALLOW_DEMO_CAPTURE", "true")
+            // Keep debug builds protected by FLAG_SECURE so the intentional
+            // device-capture switch can be tested realistically.
+            buildConfigField("Boolean", "ALLOW_DEMO_CAPTURE", "false")
         }
         release {
             isMinifyEnabled = true

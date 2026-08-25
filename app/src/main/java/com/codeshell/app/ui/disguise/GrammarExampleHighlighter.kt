@@ -5,10 +5,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.EditorKeyword
-import com.codeshell.app.ui.theme.EditorString
-import com.codeshell.app.ui.theme.FabAccent
+import com.codeshell.app.ui.theme.LearningColors.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors.EditorKeyword
+import com.codeshell.app.ui.theme.LearningColors.EditorString
+import com.codeshell.app.ui.theme.LearningColors.FabAccent
 
 object GrammarExampleHighlighter {
 

@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,12 +55,14 @@ import kotlin.math.sqrt
 fun ProfilePhotoCropDialog(
     sourceUri: Uri,
     onDismiss: () -> Unit,
-    onCropped: (Uri) -> Unit,
+    onCropped: (ProfilePhotoUris) -> Unit,
     onTooLarge: () -> Unit,
+    confirmLabel: String? = null,
 ) {
     val context = LocalContext.current
     var bitmap by remember(sourceUri) { mutableStateOf<Bitmap?>(null) }
     var isCropping by remember { mutableStateOf(false) }
+    var useCroppedForSharing by remember(sourceUri) { mutableStateOf(false) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var cropFrame by remember(sourceUri) { mutableStateOf<CropFrame?>(null) }
 
@@ -167,47 +170,64 @@ fun ProfilePhotoCropDialog(
                     }
                 }
             }
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 18.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onDismiss, enabled = !isCropping) {
-                    Text(stringResource(R.string.cancel), color = Color(0xFF24D366))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.profile_photo_use_cropped_for_sharing),
+                        color = Color.White.copy(alpha = 0.9f),
+                    )
+                    Switch(
+                        checked = useCroppedForSharing,
+                        onCheckedChange = { useCroppedForSharing = it },
+                    )
                 }
-                Button(
-                    enabled = currentBitmap != null && cropFrame != null && imageBounds != null && !isCropping,
-                    onClick = {
-                        val source = currentBitmap ?: return@Button
-                        val frame = cropFrame ?: return@Button
-                        val bounds = imageBounds ?: return@Button
-                        isCropping = true
-                        runCatching {
-                            cropSquareToCache(context, source, bounds, frame)
-                        }.onSuccess { croppedUri ->
-                            val length = File(croppedUri.path.orEmpty()).length()
-                            isCropping = false
-                            if (length > PROFILE_PHOTO_MAX_BYTES) {
-                                onTooLarge()
-                            } else {
-                                onCropped(croppedUri)
-                            }
-                        }.onFailure {
-                            isCropping = false
-                            onTooLarge()
-                        }
-                    },
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (isCropping) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Text(stringResource(R.string.done), color = Color(0xFF06120C))
+                    TextButton(onClick = onDismiss, enabled = !isCropping) {
+                        Text(stringResource(R.string.cancel), color = Color(0xFF24D366))
+                    }
+                    Button(
+                        enabled = currentBitmap != null && cropFrame != null && imageBounds != null && !isCropping,
+                        onClick = {
+                            val source = currentBitmap ?: return@Button
+                            val frame = cropFrame ?: return@Button
+                            val bounds = imageBounds ?: return@Button
+                            isCropping = true
+                            runCatching {
+                                cropProfilePhotoToCache(context, source, bounds, frame, useCroppedForSharing)
+                            }.onSuccess { photoUris ->
+                                val length = File(photoUris.croppedUri.path.orEmpty()).length()
+                                isCropping = false
+                                if (length > PROFILE_PHOTO_MAX_BYTES) {
+                                    onTooLarge()
+                                } else {
+                                    onCropped(photoUris)
+                                }
+                            }.onFailure {
+                                isCropping = false
+                                onTooLarge()
+                            }
+                        },
+                    ) {
+                        if (isCropping) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Text(
+                                confirmLabel ?: stringResource(R.string.done),
+                                color = Color(0xFF06120C),
+                            )
+                        }
                     }
                 }
             }
@@ -391,12 +411,13 @@ private fun sanitizeFrame(frame: CropFrame, bounds: Rect): CropFrame {
     )
 }
 
-private fun cropSquareToCache(
+private fun cropProfilePhotoToCache(
     context: Context,
     bitmap: Bitmap,
     imageBounds: Rect,
     cropFrame: CropFrame,
-): Uri {
+    useCroppedForSharing: Boolean,
+): ProfilePhotoUris {
     val scale = imageBounds.width / bitmap.width.toFloat()
     val x = ((cropFrame.left - imageBounds.left) / scale)
         .roundToInt()
@@ -419,8 +440,29 @@ private fun cropSquareToCache(
         output.compress(Bitmap.CompressFormat.JPEG, PROFILE_PHOTO_JPEG_QUALITY, stream)
     }
     if (output !== cropped) cropped.recycle()
-    return Uri.fromFile(file)
+    val full = createFullPhotoCache(context, bitmap)
+    return ProfilePhotoUris(Uri.fromFile(file), Uri.fromFile(full), useCroppedForSharing)
 }
+
+private fun createFullPhotoCache(context: Context, bitmap: Bitmap): File {
+    val maxDimension = 2048
+    val scale = min(1f, maxDimension.toFloat() / max(bitmap.width, bitmap.height).toFloat())
+    val output = if (scale < 1f) {
+        Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).roundToInt(), (bitmap.height * scale).roundToInt(), true)
+    } else bitmap
+    val file = File(context.cacheDir, "profile_photo_full_${System.currentTimeMillis()}.jpg")
+    file.outputStream().use { stream ->
+        output.compress(Bitmap.CompressFormat.JPEG, PROFILE_PHOTO_JPEG_QUALITY, stream)
+    }
+    if (output !== bitmap) output.recycle()
+    return file
+}
+
+data class ProfilePhotoUris(
+    val croppedUri: Uri,
+    val fullUri: Uri,
+    val useCroppedForSharing: Boolean = false,
+)
 
 private data class CropFrame(
     val left: Float,

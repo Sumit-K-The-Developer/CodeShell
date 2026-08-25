@@ -36,6 +36,8 @@ class UserRepository(
             val profile = hashMapOf(
                 FIELD_USERNAME to normalized,
                 FIELD_AVATAR_URL to null,
+                FIELD_AVATAR_FULL_URL to null,
+                FIELD_AVATAR_SHARED_URL to null,
                 FIELD_FCM_TOKEN to "",
                 FIELD_BLOCKED_USERS to emptyList<String>(),
                 FIELD_CREATED_AT to Timestamp.now()
@@ -83,6 +85,26 @@ class UserRepository(
     suspend fun updateAvatarUrl(userId: String, avatarUrl: String?): Result<Unit> {
         return try {
             usersCollection.document(userId).update(FIELD_AVATAR_URL, avatarUrl).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(mapFirestoreError(e))
+        }
+    }
+
+    suspend fun updateAvatarUrls(
+        userId: String,
+        avatarUrl: String?,
+        avatarFullUrl: String?,
+        avatarSharedUrl: String?,
+    ): Result<Unit> {
+        return try {
+            usersCollection.document(userId).update(
+                mapOf(
+                    FIELD_AVATAR_URL to avatarUrl,
+                    FIELD_AVATAR_FULL_URL to avatarFullUrl,
+                    FIELD_AVATAR_SHARED_URL to avatarSharedUrl,
+                ),
+            ).await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(mapFirestoreError(e))
@@ -191,6 +213,8 @@ class UserRepository(
             userId = id,
             username = getString(FIELD_USERNAME).orEmpty(),
             avatarUrl = getString(FIELD_AVATAR_URL),
+            avatarFullUrl = getString(FIELD_AVATAR_FULL_URL),
+            avatarSharedUrl = getString(FIELD_AVATAR_SHARED_URL) ?: getString(FIELD_AVATAR_FULL_URL),
             fcmToken = getString(FIELD_FCM_TOKEN).orEmpty(),
             blockedUsers = get(FIELD_BLOCKED_USERS) as? List<String> ?: emptyList(),
             createdAt = getTimestamp(FIELD_CREATED_AT)
@@ -210,6 +234,8 @@ class UserRepository(
         const val COLLECTION_USERNAMES = "usernames"
         const val FIELD_USERNAME = "username"
         const val FIELD_AVATAR_URL = "avatarUrl"
+        const val FIELD_AVATAR_FULL_URL = "avatarFullUrl"
+        const val FIELD_AVATAR_SHARED_URL = "avatarSharedUrl"
         const val FIELD_FCM_TOKEN = "fcmToken"
         const val FIELD_BLOCKED_USERS = "blockedUsers"
         const val FIELD_CREATED_AT = "createdAt"

@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.data.repository.AuthRepository
+import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.repository.StorageRepository
 import com.codeshell.app.data.repository.UserRepository
 import com.codeshell.app.ui.components.filterDigitUsernameInput
@@ -31,6 +32,7 @@ class SignUpViewModel(
     private val authRepository: AuthRepository = AuthRepository(),
     private val userRepository: UserRepository = UserRepository(),
     private val storageRepository: StorageRepository = StorageRepository(),
+    private val appPreferences: AppPreferences = AppPreferences(application),
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(SignUpUiState())
@@ -122,6 +124,8 @@ class SignUpViewModel(
 
     fun signUp(
         profilePhotoUri: Uri? = null,
+        profilePhotoFullUri: Uri? = null,
+        useCroppedForSharing: Boolean = false,
         onSuccess: () -> Unit,
     ) {
         val state = _uiState.value
@@ -177,9 +181,18 @@ class SignUpViewModel(
                     profileResult.fold(
                         onSuccess = {
                             if (profilePhotoUri != null) {
-                                storageRepository.uploadProfilePhoto(userId, profilePhotoUri)
-                                    .onSuccess { avatarUrl ->
-                                        userRepository.updateAvatarUrl(userId, avatarUrl.withAvatarCacheVersion())
+                                storageRepository.uploadProfilePhoto(userId, profilePhotoUri, profilePhotoFullUri)
+                                    .onSuccess { (avatarUrl, avatarFullUrl) ->
+                                        userRepository.updateAvatarUrls(
+                                            userId,
+                                            avatarUrl.withAvatarCacheVersion(),
+                                            avatarFullUrl?.withAvatarCacheVersion(),
+                                            if (useCroppedForSharing) {
+                                                avatarUrl.withAvatarCacheVersion()
+                                            } else {
+                                                (avatarFullUrl ?: avatarUrl).withAvatarCacheVersion()
+                                            },
+                                        )
                                     }
                                     .onFailure { error ->
                                         Toast.makeText(
@@ -189,6 +202,7 @@ class SignUpViewModel(
                                         ).show()
                                     }
                             }
+                            appPreferences.restoreNewTerminalAlertForAccount(userId)
                             _uiState.update { it.copy(isLoading = false) }
                             onSuccess()
                         },

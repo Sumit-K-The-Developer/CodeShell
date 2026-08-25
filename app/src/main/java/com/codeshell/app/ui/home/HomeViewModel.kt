@@ -1,12 +1,16 @@
 package com.codeshell.app.ui.home
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.R
 import com.codeshell.app.data.model.CallType
 import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.ChatSummary
+import com.codeshell.app.data.model.MessageType
+import com.codeshell.app.data.model.PendingUpload
+import com.codeshell.app.data.model.UploadStage
 import com.codeshell.app.data.model.UserProfile
 import com.codeshell.app.data.model.UserSearchResult
 import com.codeshell.app.data.preferences.AppPreferences
@@ -18,14 +22,24 @@ import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.data.repository.PresenceRepository
 import com.codeshell.app.data.repository.PresenceState
 import com.codeshell.app.data.repository.StorageRepository
+import com.codeshell.app.call.ActiveCallSessionStore
 import com.codeshell.app.data.repository.UserRepository
 import com.codeshell.app.data.auth.BotAccountConstants
 import com.codeshell.app.messaging.LocalActiveChatStore
 import com.codeshell.app.messaging.MessageReceiptCoordinator
+import com.codeshell.app.messaging.SharedContent
+import com.codeshell.app.messaging.TerminalNotificationManager
+import com.codeshell.app.ui.chat.BackgroundUploadRegistry
 import com.codeshell.app.ui.components.filterDigitUsernameInput
+import com.codeshell.app.ui.util.DeviceCaptureState
 import com.codeshell.app.util.ChatAccessCodeHasher
 import com.codeshell.app.util.ChatIdUtil
 import com.codeshell.app.util.NetworkConnectivity
+import com.codeshell.app.util.ImageUploadProcessor
+import com.codeshell.app.util.VideoUploadProcessor
+import com.codeshell.app.util.isVideoUri
+import com.codeshell.app.util.queryDisplayName
+import com.codeshell.app.util.queryFileSize
 import com.codeshell.app.util.UsernameValidator
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.first
@@ -36,8 +50,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class HomeViewModel(
     application: Application,
@@ -59,12 +77,15 @@ class HomeViewModel(
     private val profileJobs = mutableMapOf<String, Job>()
     private var searchJob: Job? = null
     private var rawChats: List<ChatSummary> = emptyList()
+    private var hiddenChatIds: Set<String> = emptySet()
     private var homeSessionStarted = false
     private var failedAccessCodeAttempts = 0
     private val presenceJobs = mutableMapOf<String, Job>()
     private val presenceCache = mutableMapOf<String, PresenceState>()
+    private var presenceExpiryJob: Job? = null
     private var deliveryReceiptJob: Job? = null
     private var incomingCallObserverJob: Job? = null
+    private var unreadReconcileJob: Job? = null
 
     private val currentUserId: String?
         get() = authRepository.currentUser?.uid
@@ -75,6 +96,10 @@ class HomeViewModel(
             _uiState.update { it.copy(isLoggedIn = false) }
         } else {
             _uiState.update { it.copy(isLoggedIn = true) }
+            viewModelScope.launch {
+                hiddenChatIds = appPreferences.getHiddenChatIdsForAccount(userId)
+                publishChats()
+            }
             viewModelScope.launch {
                 var accessCodeWasEnabled = false
                 appPreferences.chatAccessCodeEnabled.collect { enabled ->
@@ -101,6 +126,7 @@ class HomeViewModel(
     private fun startHomeSession(userId: String) {
         if (homeSessionStarted) return
         homeSessionStarted = true
+        startPresenceExpiryTicker()
         publishChats()
         observeProfile(userId)
         observeChats(userId)
@@ -111,7 +137,15 @@ class HomeViewModel(
     private fun observeIncomingCalls(userId: String) {
         incomingCallObserverJob?.cancel()
         incomingCallObserverJob = viewModelScope.launch {
-            callRepository.observeIncomingRingingForCallee(userId)
+            combine(
+                callRepository.observeIncomingRingingForCallee(userId),
+                ActiveCallSessionStore.active,
+            ) { incomingByChat, activeCall ->
+                buildMap {
+                    putAll(incomingByChat)
+                    activeCall?.let { put(it.chatId, it.callType) }
+                }
+            }
                 .catch { /* ignore listener errors */ }
                 .collect { incomingByChat ->
                     _uiState.update { it.copy(incomingCallsByChatId = incomingByChat) }
@@ -174,16 +208,19 @@ class HomeViewModel(
         return isBotChat(chat)
     }
 
-    private suspend fun deleteNonBotChatsForUser(userId: String) {
+    private suspend fun hideNonBotChatsForUser(userId: String) {
         val botUserId = _uiState.value.botUserId
             ?: botAccountRepository.ensureBotAccount().getOrNull()
         val botChatId = botUserId?.let { ChatIdUtil.create(userId, it) }
-        val chatIds = chatRepository.listChatIdsForUser(userId).getOrElse { return }
-        val toDelete = chatIds.filter { chatId ->
+        val chatIds = chatRepository.listChatIdsForUser(userId).getOrElse {
+            rawChats.map { it.chatId }
+        }
+        val toHide = chatIds.filter { chatId ->
             chatId != BotAccountConstants.LOCAL_ASSISTANT_CHAT_ID && chatId != botChatId
         }
-        if (toDelete.isNotEmpty()) {
-            chatRepository.deleteChats(toDelete)
+        if (toHide.isNotEmpty()) {
+            hiddenChatIds = hiddenChatIds + toHide
+            appPreferences.addHiddenChatIdsForAccount(userId, toHide)
         }
     }
 
@@ -209,7 +246,12 @@ class HomeViewModel(
             } else {
                 failedAccessCodeAttempts++
                 if (failedAccessCodeAttempts >= 3) {
-                    currentUserId?.let { deleteNonBotChatsForUser(it) }
+                    currentUserId?.let { hideNonBotChatsForUser(it) }
+                    currentUserId?.let { userId ->
+                        appPreferences.suspendNewTerminalAlertForAccount(userId)
+                    }
+                    TerminalNotificationManager.clearAll(getApplication())
+                    DeviceCaptureState.disable()
                     authRepository.signOut()
                     _uiState.update {
                         it.copy(
@@ -338,6 +380,9 @@ class HomeViewModel(
             _uiState.update { it.copy(isOpeningChat = false) }
             result.fold(
                 onSuccess = { chatId ->
+                    hiddenChatIds = hiddenChatIds - chatId
+                    appPreferences.removeHiddenChatIdForAccount(userId, chatId)
+                    publishChats()
                     _uiState.update { it.copy(searchQuery = "", searchResult = null) }
                     onChatReady(chatId)
                 },
@@ -380,7 +425,21 @@ class HomeViewModel(
                 .collect { chats ->
                     rawChats = chats
                     publishChats()
+                    reconcileUnreadCounts(userId, chats)
                 }
+        }
+    }
+
+    private fun reconcileUnreadCounts(userId: String, chats: List<ChatSummary>) {
+        unreadReconcileJob?.cancel()
+        unreadReconcileJob = viewModelScope.launch {
+            chats.filter { it.unreadCount > 0 }.forEach { chat ->
+                val actual = messageRepository.getUnreadMessageCount(chat.chatId, userId).getOrNull()
+                    ?: return@forEach
+                if (actual != chat.unreadCount) {
+                    messageRepository.setUnreadCount(chat.chatId, userId, actual)
+                }
+            }
         }
     }
 
@@ -414,6 +473,8 @@ class HomeViewModel(
                 chat.copy(
                     otherUsername = resolvedUsername,
                     otherAvatarUrl = profile?.avatarUrl,
+                    otherAvatarFullUrl = profile?.avatarFullUrl,
+                    otherAvatarSharedUrl = profile?.avatarSharedUrl ?: profile?.avatarFullUrl,
                 )
             }
 
@@ -444,6 +505,10 @@ class HomeViewModel(
                 }
                 enriched = listOf(synthetic) + enriched
             }
+        }
+
+        enriched = enriched.filter { chat ->
+            chat.chatId !in hiddenChatIds || isBotChat(chat)
         }
 
         enriched = enriched.sortedByDescending { chat ->
@@ -544,7 +609,10 @@ class HomeViewModel(
             if (userId in presenceJobs) return@forEach
             presenceJobs[userId] = viewModelScope.launch {
                 presenceRepository.observePresence(userId)
-                    .catch { /* ignore */ }
+                    .catch {
+                        presenceCache.remove(userId)
+                        recomputeOnlineUserIds()
+                    }
                     .collect { presence ->
                         presenceCache[userId] = presence
                         recomputeOnlineUserIds()
@@ -562,6 +630,16 @@ class HomeViewModel(
             .keys
             .toSet()
         _uiState.update { it.copy(onlineUserIds = online) }
+    }
+
+    private fun startPresenceExpiryTicker() {
+        presenceExpiryJob?.cancel()
+        presenceExpiryJob = viewModelScope.launch {
+            while (isActive) {
+                delay(PRESENCE_REFRESH_INTERVAL_MS)
+                recomputeOnlineUserIds()
+            }
+        }
     }
 
     fun clearSearch() {
@@ -613,6 +691,109 @@ class HomeViewModel(
             val updated = state.selectedChatIds.toMutableSet()
             if (chatId in updated) updated.remove(chatId) else updated.add(chatId)
             state.copy(selectedChatIds = updated)
+        }
+    }
+
+    fun sendSharedContentToChats(content: SharedContent, chatIds: Set<String>) {
+        val senderId = currentUserId ?: return
+        val targets = chatIds.filterNot(::isProtectedBotChatId)
+        if (targets.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolver = getApplication<Application>().contentResolver
+            targets.forEach { chatId ->
+                val recipientId = rawChats.firstOrNull { it.chatId == chatId }?.otherUserId ?: return@forEach
+                content.text?.takeIf { it.isNotBlank() }?.let { text ->
+                    messageRepository.sendTextMessage(chatId, senderId, recipientId, text)
+                }
+                content.videoUris.forEach { uri ->
+                    sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.VIDEO, resolver)
+                }
+                content.imageUris.forEach { uri ->
+                    sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.IMAGE, resolver)
+                }
+                content.fileUris.forEach { uri ->
+                    val mimeType = resolver.getType(uri).orEmpty().lowercase()
+                    val type = when {
+                        isVideoUri(getApplication(), resolver, uri) -> MessageType.VIDEO
+                        mimeType.startsWith("image/") -> MessageType.IMAGE
+                        else -> MessageType.FILE
+                    }
+                    sendSharedMedia(chatId, senderId, recipientId, uri, type, resolver)
+                }
+            }
+        }
+    }
+
+    private suspend fun sendSharedMedia(
+        chatId: String,
+        senderId: String,
+        recipientId: String,
+        sourceUri: Uri,
+        type: MessageType,
+        resolver: android.content.ContentResolver,
+    ) {
+        val app = getApplication<Application>()
+        val localId = UUID.randomUUID().toString()
+        val pending = PendingUpload(
+            localId = localId,
+            type = type,
+            localUri = sourceUri,
+            fileName = queryDisplayName(resolver, sourceUri),
+            fileSize = queryFileSize(resolver, sourceUri),
+        )
+        BackgroundUploadRegistry.upsert(chatId, pending)
+        val preparedUri: Uri
+        val preparedSize: Long?
+        try {
+            when (type) {
+                MessageType.IMAGE -> {
+                    val prepared = ImageUploadProcessor.prepare(app, resolver, sourceUri)
+                    preparedUri = prepared.uri
+                    preparedSize = prepared.fileSize
+                }
+                MessageType.VIDEO -> {
+                    val prepared = runCatching {
+                        VideoUploadProcessor.prepare(app, resolver, sourceUri)
+                    }.getOrElse {
+                        BackgroundUploadRegistry.remove(localId)
+                        return
+                    }
+                    preparedUri = prepared.uri
+                    preparedSize = prepared.fileSize
+                }
+                else -> {
+                    preparedUri = sourceUri
+                    preparedSize = queryFileSize(resolver, sourceUri)
+                }
+            }
+            BackgroundUploadRegistry.update(chatId, localId) {
+                it.copy(stage = UploadStage.UPLOADING, progress = 0f)
+            }
+            val messageId = UUID.randomUUID().toString()
+            val upload = storageRepository.uploadChatMedia(
+                chatId = chatId,
+                messageId = messageId,
+                localUri = preparedUri,
+                contentResolver = resolver,
+            ) { progress ->
+                BackgroundUploadRegistry.update(chatId, localId) {
+                    it.copy(stage = UploadStage.UPLOADING, progress = progress)
+                }
+            }
+            if (upload.isSuccess) {
+                messageRepository.sendMediaMessage(
+                    chatId = chatId,
+                    senderId = senderId,
+                    recipientId = recipientId,
+                    type = type,
+                    contentUrl = upload.getOrThrow(),
+                    fileName = pending.fileName,
+                    fileSize = preparedSize,
+                    messageId = messageId,
+                )
+            }
+        } finally {
+            BackgroundUploadRegistry.remove(localId)
         }
     }
 
@@ -679,6 +860,7 @@ class HomeViewModel(
         profileCache.clear()
         presenceJobs.values.forEach { it.cancel() }
         presenceJobs.clear()
+        presenceExpiryJob?.cancel()
         presenceCache.clear()
         super.onCleared()
     }
@@ -686,6 +868,7 @@ class HomeViewModel(
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 400L
         private const val HOME_DELIVERY_DEBOUNCE_MS = 300L
+        private const val PRESENCE_REFRESH_INTERVAL_MS = 5_000L
     }
 }
 

@@ -26,13 +26,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.codeshell.app.disguise.ShellFlavorConfigProvider
 import com.codeshell.app.ui.disguise.snippets.LearnTopic
-import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.EditorMutedText
-import com.codeshell.app.ui.theme.EditorOnAccent
-import com.codeshell.app.ui.theme.FabAccent
-import com.codeshell.app.ui.theme.FabAccentSelected
-import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.ui.theme.LearningColors.EditorBackground
+import com.codeshell.app.ui.theme.LearningColors.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors.EditorMutedText
+import com.codeshell.app.ui.theme.LearningColors.EditorOnAccent
+import com.codeshell.app.ui.theme.LearningColors.FabAccent
+import com.codeshell.app.ui.theme.LearningColors.FabAccentSelected
+import com.codeshell.app.ui.theme.LearningColors.TopBarBackground
 import com.codeshell.app.ui.util.tapOrDoubleTap
 
 private val ChipShape = RoundedCornerShape(8.dp)

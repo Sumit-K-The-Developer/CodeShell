@@ -37,9 +37,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.codeshell.app.R
-import com.codeshell.app.ui.theme.EditorBackground
-import com.codeshell.app.ui.theme.EditorDefaultText
-import com.codeshell.app.ui.theme.TopBarBackground
+import com.codeshell.app.ui.theme.LearningColors.EditorBackground
+import com.codeshell.app.ui.theme.LearningColors.EditorDefaultText
+import com.codeshell.app.ui.theme.LearningColors.TopBarBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

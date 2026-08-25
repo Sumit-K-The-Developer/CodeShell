@@ -88,6 +88,8 @@ fun SignUpScreen(
     val scrollState = rememberScrollState()
     val (bumpActivity, activityGeneration) = rememberTerminalActivity()
     var profilePhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var profilePhotoFullUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var useCroppedForSharing by remember { mutableStateOf(false) }
     var pendingProfilePhotoCropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var profilePhotoWarning by remember { mutableStateOf<String?>(null) }
     var externalProfilePhotoFlowActive by remember { mutableStateOf(false) }
@@ -206,6 +208,8 @@ fun SignUpScreen(
                     onDone = {
                         viewModel.signUp(
                             profilePhotoUri = profilePhotoUri,
+                            profilePhotoFullUri = profilePhotoFullUri,
+                            useCroppedForSharing = useCroppedForSharing,
                             onSuccess = onSignUpSuccess,
                         )
                     }
@@ -281,6 +285,8 @@ fun SignUpScreen(
                 onClick = {
                     viewModel.signUp(
                         profilePhotoUri = profilePhotoUri,
+                        profilePhotoFullUri = profilePhotoFullUri,
+                        useCroppedForSharing = useCroppedForSharing,
                         onSuccess = onSignUpSuccess,
                     )
                 },
@@ -311,10 +317,12 @@ fun SignUpScreen(
         ProfilePhotoCropDialog(
             sourceUri = sourceUri,
             onDismiss = { pendingProfilePhotoCropUri = null },
-            onCropped = { croppedUri ->
+            onCropped = { photoUris ->
                 pendingProfilePhotoCropUri = null
                 profilePhotoWarning = null
-                profilePhotoUri = croppedUri
+                profilePhotoUri = photoUris.croppedUri
+                profilePhotoFullUri = photoUris.fullUri
+                useCroppedForSharing = photoUris.useCroppedForSharing
             },
             onTooLarge = {
                 pendingProfilePhotoCropUri = null

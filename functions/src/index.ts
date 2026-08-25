@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
@@ -301,7 +301,8 @@ async function sendDisguisedPush(
 async function sendDisguisedCallPush(
   recipientId: string,
   chatId: string,
-  callId: string
+  callId: string,
+  callType: string
 ): Promise<void> {
   const userSnap = await db.collection("users").doc(recipientId).get();
   const token = userSnap.get("fcmToken") as string | undefined;
@@ -315,12 +316,70 @@ async function sendDisguisedCallPush(
     data: {
       chatId,
       callId,
+      callType,
       type: "incoming_call",
     },
     android: {
       priority: "high",
     },
   });
+}
+
+async function sendCallOutcomePush(
+  recipientId: string,
+  chatId: string,
+  callId: string,
+  callType: string,
+  status: string,
+): Promise<void> {
+  const userSnap = await db.collection("users").doc(recipientId).get();
+  const token = userSnap.get("fcmToken") as string | undefined;
+  if (!token) return;
+
+  await admin.messaging().send({
+    token,
+    data: {
+      chatId,
+      callId,
+      callType,
+      status,
+      type: "call_update",
+    },
+    android: { priority: "high" },
+  });
+}
+
+async function sendCallStateOutcome(
+  data: Record<string, any>,
+  previousState: string | undefined,
+  state: string,
+): Promise<void> {
+  const callerId = data.callerId as string | undefined;
+  const calleeId = data.calleeId as string | undefined;
+  const chatId = data.chatId as string | undefined;
+  const callId = data.id as string | undefined;
+  const callType = data.callType as string | undefined || "voice";
+  if (!callerId || !calleeId || !chatId || !callId) return;
+
+  if (state === "missed") {
+    await Promise.all([
+      sendCallOutcomePush(calleeId, chatId, callId, callType, "missed"),
+      sendCallOutcomePush(callerId, chatId, callId, callType, "not_answered"),
+    ]);
+    return;
+  }
+
+  if (state === "declined") {
+    await sendCallOutcomePush(callerId, chatId, callId, callType, "declined");
+    return;
+  }
+
+  // A caller cancelling while the call is still ringing/connecting is a
+  // missed connection for the receiver, not a completed call.
+  if (state === "ended" &&
+      (previousState === "ringing" || previousState === "accepted" || previousState === "connecting")) {
+    await sendCallOutcomePush(calleeId, chatId, callId, callType, "missed");
+  }
 }
 
 export const onMessageCreated = onDocumentCreated(
@@ -342,7 +401,13 @@ export const onMessageCreated = onDocumentCreated(
     if (!recipientId) return;
 
     try {
-      await sendDisguisedPush(recipientId, chatId, messageId);
+      if (data.type === "session") {
+        // Call outcome pushes are emitted by the call-state trigger below.
+        // Keeping delivery tied to the call document prevents a failed or
+        // delayed chat-log write from leaving notifications stale or missing.
+      } else {
+        await sendDisguisedPush(recipientId, chatId, messageId);
+      }
     } catch (error) {
       logger.error("FCM send failed", { chatId, messageId, error });
     }
@@ -360,11 +425,67 @@ export const onCallCreated = onDocumentCreated("calls/{callId}", async (event) =
   if (state !== "ringing" || !calleeId || !chatId) return;
 
   try {
-    await sendDisguisedCallPush(calleeId, chatId, callId);
+    await sendDisguisedCallPush(calleeId, chatId, callId, data.callType as string || "voice");
   } catch (error) {
     logger.error("Call FCM send failed", { callId, chatId, error });
   }
 });
+
+export const onCallUpdated = onDocumentUpdated("calls/{callId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after) return;
+
+  const previousState = before.state as string | undefined;
+  const state = after.state as string | undefined;
+  if (!state || state === previousState) return;
+
+  try {
+    await sendCallStateOutcome(
+      { ...after, id: event.params.callId },
+      previousState,
+      state,
+    );
+  } catch (error) {
+    logger.error("Call outcome push failed", {
+      callId: event.params.callId,
+      previousState,
+      state,
+      error,
+    });
+  }
+});
+
+export const expireRingingCalls = onSchedule(
+  "every 1 minutes",
+  async () => {
+    const cutoff = admin.firestore.Timestamp.fromMillis(Date.now() - 45_000);
+    const snapshot = await db.collection("calls")
+      .where("state", "==", "ringing")
+      .get();
+
+    await Promise.all(snapshot.docs
+      .filter((doc) => {
+        const createdAt = doc.get("createdAt") as admin.firestore.Timestamp | undefined;
+        return !!createdAt && createdAt.toMillis() <= cutoff.toMillis();
+      })
+      .map(async (doc) => {
+      const claimed = await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(doc.ref);
+        if (current.get("state") !== "ringing") return false;
+        transaction.update(doc.ref, {
+          state: "missed",
+          endedReason: "missed_timeout",
+          updatedAt: admin.firestore.Timestamp.now(),
+        });
+        return true;
+      });
+      if (claimed) {
+        logger.info("Expired ringing call", { callId: doc.id });
+      }
+      }));
+  },
+);
 
 export const purgeExpiredMessages = onSchedule(
   {

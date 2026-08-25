@@ -34,11 +34,13 @@ import androidx.navigation.compose.rememberNavController
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.CallType
+import com.codeshell.app.call.PendingCallStore
 import com.codeshell.app.messaging.PendingChatNavigation
 import com.codeshell.app.messaging.PendingNewsArticle
 import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.messaging.SharedContent
 import com.codeshell.app.messaging.TerminalNotificationManager
+import com.codeshell.app.messaging.NotificationVisibilityStore
 import com.codeshell.app.navigation.CodeShellNavHost
 import com.codeshell.app.util.SecureExitGuard
 import com.codeshell.app.ui.theme.CodeShellTheme
@@ -78,6 +80,14 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
         enableEdgeToEdge()
 
         appPreferences = AppPreferences(applicationContext)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            ensureCallNotificationControlsDefault()
+        }
         lifecycleScope.launch {
             appPreferences.hideOnHomePress.collect { enabled ->
                 hideOnHomePress = enabled
@@ -162,11 +172,14 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
     ) {
         if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
             applySuppressHideOnHome(false)
-            val message = if (ContextCompat.checkSelfPermission(
+            val granted = ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.POST_NOTIFICATIONS,
                 ) == PackageManager.PERMISSION_GRANTED
-            ) {
+            if (granted) {
+                ensureCallNotificationControlsDefault()
+            }
+            val message = if (granted) {
                 getString(R.string.notification_permission_enabled)
             } else {
                 getString(R.string.notification_permission_disabled)
@@ -181,15 +194,18 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
     }
 
     private fun requestNotificationPermissionOnFirstInstall() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            ensureCallNotificationControlsDefault()
+            return
+        }
 
         val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
         if (preferences.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)) return
 
         preferences.edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!granted) {
             // Opening the system permission dialog triggers onUserLeaveHint().
             // Prevent the disguise's home-press exit logic from finishing us.
             applySuppressHideOnHome(true)
@@ -198,6 +214,14 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 NOTIFICATION_PERMISSION_REQUEST_CODE,
             )
+        } else {
+            ensureCallNotificationControlsDefault()
+        }
+    }
+
+    private fun ensureCallNotificationControlsDefault() {
+        lifecycleScope.launch {
+            appPreferences.ensureCallNotificationControlsDefault(notificationPermissionGranted = true)
         }
     }
 
@@ -272,6 +296,21 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
     private fun consumeNotificationChatIntent(intent: Intent?) {
         if (intent == null) return
 
+        if (intent.getBooleanExtra(TerminalNotificationManager.EXTRA_DIRECT_CALL, false)) {
+            val chatId = intent.getStringExtra(TerminalNotificationManager.EXTRA_CHAT_ID).orEmpty()
+            val callId = intent.getStringExtra(TerminalNotificationManager.EXTRA_CALL_ID).orEmpty()
+            if (chatId.isNotBlank() && callId.isNotBlank()) {
+                intent.removeExtra(TerminalNotificationManager.EXTRA_DIRECT_CALL)
+                intent.removeExtra(TerminalNotificationManager.EXTRA_CHAT_ID)
+                intent.removeExtra(TerminalNotificationManager.EXTRA_CALL_ID)
+                PendingCallStore.save(applicationContext, chatId, callId)
+                PendingChatNavigation.set(chatId)
+                TerminalNotificationManager.clearAllForChat(applicationContext, chatId)
+                notificationOpenTick++
+                return
+            }
+        }
+
         val openChatId = intent.getStringExtra(TerminalNotificationManager.EXTRA_OPEN_CHAT_ID)
         if (openChatId != null) {
             intent.removeExtra(TerminalNotificationManager.EXTRA_OPEN_CHAT_ID)
@@ -340,7 +379,13 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
         !secureTerminalOnly || isOnTerminalScreen
 
     override fun onStop() {
+        NotificationVisibilityStore.setAppInForeground(false)
         super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        NotificationVisibilityStore.setAppInForeground(true)
     }
 
     override fun onDestroy() {

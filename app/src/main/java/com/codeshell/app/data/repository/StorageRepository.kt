@@ -65,12 +65,19 @@ class StorageRepository(
 
     suspend fun uploadProfilePhoto(
         userId: String,
-        localUri: Uri
-    ): Result<String> {
+        croppedUri: Uri,
+        fullUri: Uri? = null,
+    ): Result<Pair<String, String?>> {
         return try {
-            val ref = storage.reference.child("users/$userId/profile/avatar.jpg")
-            ref.putFile(localUri).await()
-            Result.success(ref.downloadUrl.await().toString())
+            val avatarRef = storage.reference.child("users/$userId/profile/avatar.jpg")
+            avatarRef.putFile(croppedUri).await()
+            val avatarUrl = avatarRef.downloadUrl.await().toString()
+            val fullUrl = fullUri?.let {
+                val fullRef = storage.reference.child("users/$userId/profile/avatar_full.jpg")
+                fullRef.putFile(it).await()
+                fullRef.downloadUrl.await().toString()
+            }
+            Result.success(avatarUrl to fullUrl)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -79,6 +86,7 @@ class StorageRepository(
     suspend fun deleteProfilePhoto(userId: String): Result<Unit> {
         return try {
             storage.reference.child("users/$userId/profile/avatar.jpg").delete().await()
+            runCatching { storage.reference.child("users/$userId/profile/avatar_full.jpg").delete().await() }
             Result.success(Unit)
         } catch (e: StorageException) {
             if (e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) {

@@ -10,6 +10,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -55,6 +57,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +68,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -97,6 +101,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -112,17 +118,19 @@ import androidx.media3.ui.PlayerView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeshell.app.R
+import com.codeshell.app.BuildConfig
 import com.codeshell.app.ui.chat.ChatAccessLockOverlay
 import com.codeshell.app.ui.chat.ChatThemeColors
 import com.codeshell.app.ui.chat.ChatUserIdBadge
+import com.codeshell.app.ui.util.DeviceCaptureState
 import com.codeshell.app.ui.chat.rememberAdaptiveChatTheme
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
 import com.codeshell.app.ui.util.WindowLayout
-import com.codeshell.app.ui.components.HiddenSettingsIconButton
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.CodeShellApplication
 import com.codeshell.app.MainActivity
 import com.codeshell.app.data.auth.BotAccountConstants
+import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.messaging.PendingChatDraft
 import com.codeshell.app.messaging.PendingSharedContent
 import com.codeshell.app.util.MediaPreloadCache
@@ -139,12 +147,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalComposeUiApi::class,
+    ExperimentalFoundationApi::class,
+)
 @Composable
 fun HomeScreen(
     onNavigateBack: () -> Unit,
     onOpenChat: (chatId: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenVault: () -> Unit,
     onOpenAiTutor: (topicId: String, topicLabel: String, welcomeDigits: String, entrySource: String) -> Unit,
     onTerminalRevoked: () -> Unit,
     vaultSendItemIds: List<String> = emptyList(),
@@ -156,17 +169,27 @@ fun HomeScreen(
     val focusManager = LocalFocusManager.current
     val viewModel: HomeViewModel = viewModel { HomeViewModel(app) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val accessCodeEnabled by remember { AppPreferences(app) }.chatAccessCodeEnabled
+        .collectAsStateWithLifecycle(initialValue = false)
     val vaultUiState by vaultViewModel.uiState.collectAsStateWithLifecycle()
+    val deviceCaptureEnabled by DeviceCaptureState.enabled.collectAsStateWithLifecycle()
     val chatTheme = rememberAdaptiveChatTheme(uiState.chatInterfaceStyle)
     val listColors = chatTheme.colors
     val profileDigits = UsernameFormatter.parseRawInput(uiState.profile?.username.orEmpty())
         .takeIf { it.isNotEmpty() }
+    fun toggleDeviceCapture() {
+        val enabled = DeviceCaptureState.toggle()
+        if (!enabled) {
+            Toast.makeText(context, "Ensure the captured content is moved to Vault.", Toast.LENGTH_LONG).show()
+        }
+    }
     var showBlockDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showSelectionMenu by remember { mutableStateOf(false) }
     var searchActivated by remember { mutableStateOf(false) }
     var expandedProfilePhotoUrl by remember { mutableStateOf<String?>(null) }
     var pendingSharedContent by remember { mutableStateOf(PendingSharedContent.peek()) }
+    var multiSendInProgress by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val searchActive = searchActivated || uiState.searchQuery.isNotEmpty()
@@ -195,32 +218,6 @@ fun HomeScreen(
         }
     }
 
-    // Handle sending vault items when selection changes during vault send.
-    // The selected chat is opened with the vault items dropped in as drafts
-    // (pending attachments) instead of auto-sending them.
-    LaunchedEffect(uiState.selectedChatIds, uiState.pendingVaultSend) {
-        if (uiState.pendingVaultSend && uiState.selectedChatIds.isNotEmpty()) {
-            val chatId = uiState.selectedChatIds.first()
-            if (vaultSendItemIds.isNotEmpty()) {
-                PendingChatDraft.set(vaultSendItemIds)
-                viewModel.clearVaultSendFlag()
-            }
-            viewModel.cancelSelection()
-            onOpenChat(chatId)
-        }
-    }
-
-    // Shared content "Send to Chat": pick a tile, then open that chat where the
-    // shared content is turned into a draft (never auto-sent).
-    LaunchedEffect(uiState.selectedChatIds, uiState.pendingSharedSend) {
-        if (uiState.pendingSharedSend && uiState.selectedChatIds.isNotEmpty()) {
-            val chatId = uiState.selectedChatIds.first()
-            viewModel.clearSharedSendFlag()
-            viewModel.cancelSelection()
-            onOpenChat(chatId)
-        }
-    }
-
     TerminalInactivityEffect(
         onNavigateBack,
         activityGeneration,
@@ -245,6 +242,59 @@ fun HomeScreen(
     fun handleTerminalRevoked() {
         Toast.makeText(context, context.getString(R.string.terminal_revoked), Toast.LENGTH_SHORT).show()
         onTerminalRevoked()
+    }
+
+    fun clearPendingSharedContent() {
+        PendingSharedContent.clear()
+        pendingSharedContent = null
+    }
+
+    fun savePendingSharedContentToVault() {
+        val content = pendingSharedContent ?: return
+        val mediaUris = content.allUris
+        if (mediaUris.isEmpty()) {
+            clearPendingSharedContent()
+            return
+        }
+        vaultViewModel.saveToVaultFromUris(
+            uris = mediaUris,
+            onAllComplete = {
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.saved_to_vault),
+                        actionLabel = context.getString(R.string.view),
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        onOpenVault()
+                    }
+                }
+                clearPendingSharedContent()
+            },
+            deleteSource = false,
+        )
+    }
+
+    fun sendPendingSharedContentToSelectedChats() {
+        val content = pendingSharedContent ?: return
+        val selectedChatIds = uiState.selectedChatIds
+        if (selectedChatIds.isEmpty() || multiSendInProgress) return
+        viewModel.sendSharedContentToChats(content, selectedChatIds)
+        PendingSharedContent.clear()
+        pendingSharedContent = null
+        multiSendInProgress = false
+        viewModel.cancelSelection()
+        scope.launch {
+            snackbarHostState.showSnackbar("Sent")
+        }
+    }
+
+    fun sendPendingVaultItemsToSelectedChats() {
+        val selectedChatIds = uiState.selectedChatIds
+        if (vaultSendItemIds.isEmpty() || selectedChatIds.isEmpty()) return
+        vaultViewModel.sendVaultItemsToChats(vaultSendItemIds, selectedChatIds)
+        viewModel.clearVaultSendFlag()
+        viewModel.cancelSelection()
+        scope.launch { snackbarHostState.showSnackbar("Sent") }
     }
 
     BackHandler(enabled = uiState.selectionMode) {
@@ -333,37 +383,107 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = if (uiState.selectionMode) {
-                            if (uiState.selectedChatIds.isEmpty()) {
-                                stringResource(R.string.select_sessions)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!uiState.selectionMode && uiState.profilePicturesEnabled &&
+                            !uiState.profile?.avatarUrl.isNullOrBlank()
+                        ) {
+                            AsyncImage(
+                                model = uiState.profile?.avatarUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .size(34.dp)
+                                    .clip(CircleShape),
+                            )
+                        }
+                        Text(
+                            text = if (uiState.selectionMode) {
+                                if (uiState.selectedChatIds.isEmpty()) {
+                                    stringResource(R.string.select_sessions)
+                                } else {
+                                    stringResource(R.string.selected_sessions_count, uiState.selectedChatIds.size)
+                                }
                             } else {
-                                stringResource(R.string.selected_sessions_count, uiState.selectedChatIds.size)
-                            }
-                        } else {
-                            stringResource(R.string.home_title)
-                        },
-                        color = listColors.text
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            when {
-                                uiState.selectionMode -> viewModel.cancelSelection()
-                                searchActive -> dismissSearch()
-                                else -> onNavigateBack()
+                                if (BuildConfig.SHELL_FLAVOR == "news") "InLine" else "EnglishShell"
+                            },
+                            color = listColors.text,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = if (BuildConfig.SHELL_FLAVOR == "news") {
+                                    FontFamily.SansSerif
+                                } else {
+                                    FontFamily.Cursive
+                                },
+                                fontWeight = FontWeight.Bold,
+                            ),
+                        )
+                        if (!uiState.selectionMode) {
+                            Text(
+                                text = "♥",
+                                color = Color(0xFFB84A58),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
+                        if (!uiState.selectionMode && pendingSharedContent == null && !profileDigits.isNullOrEmpty()) {
+                            Text(
+                                text = profileDigits,
+                                color = listColors.text.copy(alpha = 0.52f),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                modifier = Modifier
+                                    .padding(start = 10.dp)
+                                    .pointerInput(deviceCaptureEnabled) {
+                                        detectTapGestures(onLongPress = { toggleDeviceCapture() })
+                                    },
+                            )
+                            if (deviceCaptureEnabled) {
+                                Text(
+                                    text = "⚠",
+                                    color = Color(0xFFFFC107),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(start = 3.dp),
+                                )
                             }
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                            tint = listColors.text
-                        )
+                    }
+                },
+                navigationIcon = {
+                    if (uiState.selectionMode) {
+                        IconButton(onClick = { viewModel.cancelSelection() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back),
+                                tint = listColors.text,
+                            )
+                        }
                     }
                 },
                 actions = {
+                    if (pendingSharedContent != null && !uiState.selectionMode) {
+                        if (pendingSharedContent?.hasMedia == true) {
+                            TextButton(onClick = ::savePendingSharedContentToVault) {
+                                Text(
+                                    text = "→ Vault",
+                                    color = listColors.accent,
+                                )
+                            }
+                        }
+                        Surface(
+                            color = listColors.text.copy(alpha = 0.12f),
+                            shape = CircleShape,
+                        ) {
+                            IconButton(onClick = ::clearPendingSharedContent) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.cancel),
+                                    tint = listColors.text,
+                                )
+                            }
+                        }
+                    }
                     if (uiState.selectionMode) {
                         Box {
                             IconButton(onClick = { showSelectionMenu = true }) {
@@ -395,11 +515,25 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        ChatUserIdBadge(
-                            digits = profileDigits,
-                            colors = listColors,
-                        )
-                        HiddenSettingsIconButton(onOpenSettings = onOpenSettings)
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .pointerInput(accessCodeEnabled) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            if (!accessCodeEnabled) onOpenSettings()
+                                        },
+                                        onDoubleTap = { onOpenSettings() },
+                                    )
+                                },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.more_options),
+                                tint = listColors.text,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -416,17 +550,6 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             OfflineBanner(colors = listColors)
-            if (uiState.selectionMode &&
-                (uiState.pendingVaultSend || uiState.pendingSharedSend)
-            ) {
-                SendModeHintBar(
-                    text = stringResource(R.string.vault_send_hint),
-                    colors = listColors,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
             if (!uiState.selectionMode) {
                 SearchBar(
                     query = uiState.searchQuery,
@@ -440,6 +563,18 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 )
+
+                if (pendingSharedContent != null) {
+                    Text(
+                        text = "Select a tile to send",
+                        color = listColors.accent,
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, bottom = 6.dp),
+                    )
+                }
 
                 uiState.searchMessage?.let { message ->
                     Text(
@@ -483,61 +618,16 @@ fun HomeScreen(
 
             HorizontalDivider(color = listColors.mutedText.copy(alpha = 0.15f))
 
-            pendingSharedContent?.let { content ->
-                val mediaUris = content.allUris
-                val description = when {
-                    content.mediaCount > 1 ->
-                        context.getString(R.string.pending_share_multiple_desc, content.mediaCount)
-                    content.videoUri != null -> context.getString(R.string.pending_share_video_desc)
-                    content.imageUri != null -> context.getString(R.string.pending_share_image_desc)
-                    content.fileUri != null -> context.getString(R.string.pending_share_file_desc)
-                    !content.text.isNullOrBlank() -> content.text
-                    else -> context.getString(R.string.pending_share_text_desc)
-                }
-                PendingShareBanner(
-                    description = description,
-                    showSaveToVault = content.hasMedia,
-                    colors = listColors,
-                    onSendToChat = {
-                        viewModel.enterSelectionModeForSharedSend()
-                    },
-                    onSaveToVault = {
-                        if (mediaUris.isNotEmpty()) {
-                            vaultViewModel.saveToVaultFromUris(
-                                uris = mediaUris,
-                                onAllComplete = {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            context.getString(R.string.saved_to_vault)
-                                        )
-                                    }
-                                    PendingSharedContent.clear()
-                                    pendingSharedContent = null
-                                },
-                                deleteSource = false,
-                            )
-                        } else {
-                            PendingSharedContent.clear()
-                            pendingSharedContent = null
-                        }
-                    },
-                    onDismiss = {
-                        PendingSharedContent.clear()
-                        pendingSharedContent = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-
             if (uiState.chats.isEmpty() && uiState.profile != null && uiState.isLoggedIn) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp)
                         .then(
-                            if (uiState.selectionMode) {
+                            if (uiState.selectionMode &&
+                                !uiState.pendingVaultSend &&
+                                !uiState.pendingSharedSend
+                            ) {
                                 Modifier.pointerInput(uiState.selectionMode) {
                                     detectTapGestures(onTap = { viewModel.cancelSelection() })
                                 }
@@ -565,15 +655,6 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .then(
-                            // Blur the tiles behind the external-share "choose an
-                            // action" banner so the decision surface stays the focus.
-                            if (pendingSharedContent != null && !uiState.selectionMode) {
-                                Modifier.blur(10.dp)
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .then(
                             if (uiState.selectionMode) {
                                 Modifier.padding(bottom = 88.dp)
                             } else {
@@ -581,7 +662,10 @@ fun HomeScreen(
                             }
                         )
                         .then(
-                            if (uiState.selectionMode) {
+                            if (uiState.selectionMode &&
+                                !uiState.pendingVaultSend &&
+                                !uiState.pendingSharedSend
+                            ) {
                                 Modifier.pointerInput(uiState.selectionMode) {
                                     detectTapGestures(onTap = { viewModel.cancelSelection() })
                                 }
@@ -611,6 +695,11 @@ fun HomeScreen(
                             onDisguiseTap = {
                                 if (uiState.selectionMode) {
                                     viewModel.toggleChatSelection(chat.chatId)
+                                } else if (pendingSharedContent != null) {
+                                    if (!viewModel.isBotChat(chat)) {
+                                        onOpenChat(chat.chatId)
+                                        pendingSharedContent = null
+                                    }
                                 } else {
                                     val digits = UsernameFormatter.parseRawInput(chat.otherUsername)
                                     openDisguiseAiTutor(digits)
@@ -618,14 +707,28 @@ fun HomeScreen(
                             },
                             onOpenSession = {
                                 if (!uiState.selectionMode) {
-                                    viewModel.openChat(chat.chatId, onOpenChat)
+                                    if (pendingSharedContent != null) {
+                                        if (!viewModel.isBotChat(chat)) {
+                                            onOpenChat(chat.chatId)
+                                            pendingSharedContent = null
+                                        }
+                                    } else {
+                                        viewModel.openChat(chat.chatId, onOpenChat)
+                                    }
+                                }
+                            },
+                            onIncomingCallTap = {
+                                if (!uiState.selectionMode) {
+                                    onOpenChat(chat.chatId)
                                 }
                             },
                             onViewProfilePhoto = {
                                 if (!uiState.selectionMode && !chat.otherAvatarUrl.isNullOrBlank()) {
-                                    expandedProfilePhotoUrl = chat.otherAvatarUrl
+                                    expandedProfilePhotoUrl = chat.otherAvatarSharedUrl ?: chat.otherAvatarUrl
                                 }
                             },
+                            swipeToSelect = pendingSharedContent != null,
+                            interactionDisabled = pendingSharedContent != null && viewModel.isBotChat(chat),
                         )
                     }
                 }
@@ -633,7 +736,7 @@ fun HomeScreen(
         }
     }
         AnimatedVisibility(
-            visible = uiState.selectionMode,
+            visible = uiState.selectionMode && pendingSharedContent == null,
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             SessionSelectionBar(
@@ -647,6 +750,38 @@ fun HomeScreen(
                 onDelete = { showDeleteDialog = true },
             )
         }
+        if (uiState.selectionMode &&
+            (pendingSharedContent != null || uiState.pendingVaultSend) &&
+            uiState.selectedChatIds.isNotEmpty()
+        ) {
+            FloatingActionButton(
+                onClick = {
+                    if (uiState.pendingVaultSend) {
+                        sendPendingVaultItemsToSelectedChats()
+                    } else {
+                        sendPendingSharedContentToSelectedChats()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 24.dp),
+                containerColor = listColors.accent,
+                contentColor = listColors.background,
+            ) {
+                if (multiSendInProgress) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = listColors.background,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = stringResource(R.string.send),
+                    )
+                }
+            }
+        }
         if (uiState.isAccessLocked) {
             ChatAccessLockOverlay(
                 digits = uiState.accessCodeInput,
@@ -659,6 +794,7 @@ fun HomeScreen(
             ProfilePhotoViewer(
                 url = photoUrl,
                 vaultViewModel = vaultViewModel,
+                onOpenVault = onOpenVault,
                 onDismiss = { expandedProfilePhotoUrl = null },
             )
         }
@@ -776,10 +912,12 @@ private fun SendModeHintBar(
 private fun ProfilePhotoViewer(
     url: String,
     vaultViewModel: VaultViewModel,
+    onOpenVault: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var scale by remember(url) { mutableFloatStateOf(1f) }
     var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    var imageLoading by remember(url) { mutableStateOf(true) }
     var saveInProgress by remember(url) { mutableStateOf(false) }
     var showSaveConfirmation by remember(url) { mutableStateOf(false) }
     val saveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
@@ -821,6 +959,9 @@ private fun ProfilePhotoViewer(
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
+                onLoading = { imageLoading = true },
+                onSuccess = { imageLoading = false },
+                onError = { imageLoading = false },
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(url) {
@@ -864,10 +1005,14 @@ private fun ProfilePhotoViewer(
                         translationY = offset.y
                     },
             )
-            if (saveStatusText != null) {
-                Text(
-                    text = saveStatusText,
+            if (imageLoading) {
+                CircularProgressIndicator(
                     color = Color.White,
+                    modifier = Modifier.size(42.dp),
+                )
+            }
+            if (saveStatusText != null) {
+                Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 32.dp)
@@ -876,7 +1021,16 @@ private fun ProfilePhotoViewer(
                             shape = RoundedCornerShape(20.dp),
                         )
                         .padding(horizontal = 18.dp, vertical = 10.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(text = saveStatusText, color = Color.White)
+                    if (saveState is VaultSaveState.Success && showSaveConfirmation) {
+                        TextButton(onClick = onOpenVault) {
+                            Text(text = stringResource(R.string.view), color = Color.White)
+                        }
+                    }
+                }
             }
         }
     }

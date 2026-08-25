@@ -3,6 +3,8 @@ package com.codeshell.app.ui.util
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import com.codeshell.app.BuildConfig
 import com.codeshell.app.util.findActivity
@@ -10,9 +12,10 @@ import com.codeshell.app.util.findActivity
 @Composable
 fun SecureScreenEffect(secure: Boolean) {
     val context = LocalContext.current
-    DisposableEffect(secure) {
+    val captureEnabled by DeviceCaptureState.enabled.collectAsStateWithLifecycle()
+    DisposableEffect(secure, captureEnabled) {
         val window = context.findActivity()?.window
-        if (secure && !BuildConfig.ALLOW_DEMO_CAPTURE) {
+        if (secure && !captureEnabled && !BuildConfig.ALLOW_DEMO_CAPTURE) {
             window?.setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE

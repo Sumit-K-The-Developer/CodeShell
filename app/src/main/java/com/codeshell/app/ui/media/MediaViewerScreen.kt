@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -46,6 +47,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -109,6 +112,7 @@ fun MediaViewerScreen(
     chatId: String? = null,
     messageId: String? = null,
     onNavigateToLearning: () -> Unit,
+    onOpenVault: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val type = MessageType.from(mediaType)
@@ -120,6 +124,13 @@ fun MediaViewerScreen(
     )
     var showChrome by remember { mutableStateOf(false) }
     var activityGeneration by remember { mutableIntStateOf(0) }
+    var mediaEntered by remember { mutableStateOf(false) }
+    val mediaAlpha by animateFloatAsState(
+        targetValue = if (mediaEntered) 1f else 0f,
+        animationSpec = tween(220),
+        label = "mediaViewerEnter",
+    )
+    LaunchedEffect(Unit) { mediaEntered = true }
 
     // Video playback is continuous activity even without touch input, so it
     // intentionally remains exempt. Photos and other viewers still use the
@@ -175,6 +186,7 @@ fun MediaViewerScreen(
             Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = mediaAlpha }
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         var wasPressed = false
@@ -239,13 +251,20 @@ fun MediaViewerScreen(
                 else -> null
             }
             statusMessage?.let { message ->
-                Text(
-                    text = message,
-                    color = EditorDefaultText,
+                Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                )
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(text = message, color = EditorDefaultText)
+                    if (saveState is VaultSaveState.Success) {
+                        androidx.compose.material3.TextButton(onClick = onOpenVault) {
+                            Text(stringResource(R.string.view))
+                        }
+                    }
+                }
             }
         }
 

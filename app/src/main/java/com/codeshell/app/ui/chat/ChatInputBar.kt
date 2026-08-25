@@ -1,11 +1,13 @@
 package com.codeshell.app.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -231,6 +234,12 @@ fun ChatInputBar(
         MaterialTheme.typography.bodySmall
     }
     val isMultiline = inputText.contains('\n') || inputText.length > 48
+    var inputFocused by remember { mutableStateOf(false) }
+    val inputBorderColor by animateColorAsState(
+        targetValue = if (inputFocused) colors.accent.copy(alpha = 0.7f) else Color.Transparent,
+        animationSpec = androidx.compose.animation.core.tween(180),
+        label = "inputFocusBorder",
+    )
 
     fun sendAndCollapse() {
         attachExpanded = false
@@ -321,6 +330,10 @@ fun ChatInputBar(
             }
         }
 
+        if (drafts.isNotEmpty() || attachExpanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
         AnimatedVisibility(visible = drafts.isNotEmpty()) {
             LazyRow(
                 modifier = Modifier
@@ -372,6 +385,8 @@ fun ChatInputBar(
                 )
             }
         }
+            }
+        }
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -403,6 +418,7 @@ fun ChatInputBar(
                 modifier = inputRowModifier
                     .clip(fieldShape)
                     .background(colors.text.copy(alpha = 0.06f))
+                    .border(1.dp, inputBorderColor, fieldShape)
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -424,6 +440,7 @@ fun ChatInputBar(
                     onValueChange = onInputChange,
                     modifier = Modifier
                         .weight(1f)
+                        .onFocusChanged { inputFocused = it.hasFocus }
                         .padding(vertical = if (isMultiline) 8.dp else 0.dp),
                     textStyle = inputTextStyle.copy(color = colors.text),
                     cursorBrush = SolidColor(Color.White),

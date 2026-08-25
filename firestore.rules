@@ -106,7 +106,7 @@ service cloud.firestore {
             && request.resource.data.timestamp == resource.data.timestamp
             && request.resource.data.unseenExpiresAt == resource.data.unseenExpiresAt
             && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['delivered', 'read', 'seenBy', 'expiresAt', 'hiddenBy']))
+                .hasOnly(['delivered', 'read', 'seenBy', 'expiresAt', 'hiddenBy', 'liked']))
           ||
           (isChatParticipant(chatId)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenBy'])

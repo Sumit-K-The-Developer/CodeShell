@@ -5,10 +5,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -31,7 +34,12 @@ import com.codeshell.app.ui.home.HomeScreen
 import com.codeshell.app.ui.media.MediaViewerScreen
 import com.codeshell.app.ui.settings.SettingsScreen
 import com.codeshell.app.ui.vault.VaultScreen
+import com.codeshell.app.messaging.NotificationVisibilityStore
 import com.codeshell.app.ui.util.SecureScreenEffect
+import com.codeshell.app.ui.theme.DisguiseTheme
+import com.codeshell.app.ui.theme.EditorBackground
+import com.codeshell.app.ui.theme.LearningColors
+import com.codeshell.app.ui.theme.TopBarBackground
 import com.codeshell.app.data.model.AiTutorEntrySource
 import com.codeshell.app.util.findActivity
 
@@ -95,6 +103,19 @@ fun CodeShellNavHost(
     }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val learningScreenIsLight = currentRoute == Routes.CODING_LEARN && LearningColors.isGrammar
+    val windowContext = LocalContext.current
+    SideEffect {
+        val window = windowContext.findActivity()?.window ?: return@SideEffect
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        window.statusBarColor = (if (learningScreenIsLight) {
+            LearningColors.TopBarBackground
+        } else {
+            TopBarBackground
+        }).toArgb()
+        insetsController.isAppearanceLightStatusBars = learningScreenIsLight || DisguiseTheme.isLight
+    }
     val secure = backStackEntry?.destination?.route.requiresSecureScreen()
     val videoMediaViewerOpen = backStackEntry?.destination?.route == Routes.MEDIA &&
         backStackEntry?.arguments?.getString("type") == "video"
@@ -102,7 +123,15 @@ fun CodeShellNavHost(
 
     val activity = LocalContext.current.findActivity() as? MainActivity
     LaunchedEffect(backStackEntry?.destination?.route) {
-        activity?.isOnTerminalScreen = backStackEntry?.destination?.route.isTerminalRoute()
+        val route = backStackEntry?.destination?.route
+        activity?.isOnTerminalScreen = route.isTerminalRoute()
+        NotificationVisibilityStore.setVisibleSurface(
+            when {
+                route == Routes.HOME -> NotificationVisibilityStore.Surface.CHAT_HOME
+                route?.startsWith("chat/") == true -> NotificationVisibilityStore.Surface.IN_CHAT
+                else -> NotificationVisibilityStore.Surface.OTHER
+            },
+        )
     }
 
     LaunchedEffect(activity?.notificationOpenTick) {
@@ -173,6 +202,9 @@ fun CodeShellNavHost(
                 onOpenSettings = {
                     navController.navigate(Routes.settings())
                 },
+                onOpenVault = {
+                    navController.navigate(Routes.vault())
+                },
                 onOpenAiTutor = { topicId, topicLabel, welcomeDigits, entrySource ->
                     navController.navigate(
                         Routes.aiTutor(
@@ -206,6 +238,9 @@ fun CodeShellNavHost(
                 onOpenSettings = {
                     navController.navigate(Routes.settings(chatId))
                 },
+                onOpenVault = {
+                    navController.navigate(Routes.vault())
+                },
                 onOpenMedia = { type, url, fileName, messageId ->
                     navController.currentBackStackEntry?.savedStateHandle?.apply {
                         set(MEDIA_URL_KEY, url)
@@ -237,6 +272,9 @@ fun CodeShellNavHost(
                 messageId = mediaMessageId,
                 onNavigateToLearning = {
                     navController.popBackStack(Routes.CODING_LEARN, inclusive = false)
+                },
+                onOpenVault = {
+                    navController.navigate(Routes.vault())
                 },
                 onNavigateBack = { navController.popBackStack() }
             )

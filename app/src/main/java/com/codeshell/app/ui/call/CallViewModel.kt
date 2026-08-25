@@ -24,6 +24,8 @@ import com.codeshell.app.data.model.VoiceCall
 import com.codeshell.app.data.model.VoiceCallState
 import com.codeshell.app.data.repository.CallRepository
 import com.codeshell.app.data.repository.MessageRepository
+import com.codeshell.app.data.preferences.AppPreferences
+import com.codeshell.app.messaging.TerminalNotificationManager
 import com.codeshell.app.util.NetworkConnectivity
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Job
@@ -36,6 +38,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.webrtc.PeerConnection
 import org.webrtc.SurfaceViewRenderer
@@ -51,11 +54,13 @@ enum class CallUiPhase {
 
 data class CallUiState(
     val phase: CallUiPhase = CallUiPhase.Hidden,
+    val isOutgoing: Boolean = false,
     val callId: String? = null,
     val chatId: String? = null,
     val callType: CallType = CallType.VOICE,
     val otherDisplayName: String = "",
     val isMuted: Boolean = false,
+    val isRemoteAudioMuted: Boolean = false,
     val isSpeakerOn: Boolean = false,
     val isVideoEnabled: Boolean = true,
     val isFrontCamera: Boolean = true,
@@ -70,10 +75,11 @@ data class CallUiState(
     val callDurationSec: Long = 0,
 )
 
-class CallViewModel(
+class CallViewModel @JvmOverloads constructor(
     application: Application,
     private val callRepository: CallRepository = CallRepository(),
     private val messageRepository: MessageRepository = MessageRepository(),
+    private val appPreferences: AppPreferences = AppPreferences(application),
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(CallUiState())
@@ -90,6 +96,7 @@ class CallViewModel(
     private var webRtc: WebRtcCallEngine? = null
     private var callObserverJob: Job? = null
     private var incomingObserverJob: Job? = null
+    private var activeCallObserverJob: Job? = null
     private var ringTimeoutJob: Job? = null
     private var reconnectTimeoutJob: Job? = null
     private var allIncomingObserverJob: Job? = null
@@ -103,11 +110,16 @@ class CallViewModel(
     private val loggedCallIds = mutableSetOf<String>()
     private var proximityController: CallProximityController? = null
     private var audioRouteController: CallAudioRouteController? = null
+    private var preferredAudioRoute: CallAudioRouteType? = null
     private var ringbackPlayer: CallRingbackPlayer? = null
     private var pendingLocalRenderer: SurfaceViewRenderer? = null
     private var pendingRemoteRenderer: SurfaceViewRenderer? = null
+    private var callNotificationControls = false
 
     init {
+        viewModelScope.launch {
+            appPreferences.callNotificationControls.collect { callNotificationControls = it }
+        }
         screenShareActionJob = viewModelScope.launch {
             CallScreenShareActions.events.collect { action ->
                 when (action) {
@@ -123,9 +135,11 @@ class CallViewModel(
         currentUserId: String,
         otherUserId: String,
         otherDisplayName: String,
+        restorePendingCall: Boolean = true,
     ) {
         if (this.chatId == chatId && this.currentUserId == currentUserId) {
             _uiState.update { it.copy(otherDisplayName = otherDisplayName) }
+            if (restorePendingCall) restorePendingCallForChat(chatId)
             return
         }
         teardownObservers()
@@ -134,10 +148,9 @@ class CallViewModel(
         this.otherUserId = otherUserId
         _uiState.update { it.copy(otherDisplayName = otherDisplayName, chatId = chatId) }
 
-        val pending = PendingCallStore.peek(getApplication())
+        val pending = if (restorePendingCall) PendingCallStore.peek(getApplication()) else null
         if (pending != null && pending.first == chatId) {
-            PendingCallStore.clear(getApplication())
-            observeCall(pending.second)
+            restorePendingCallForChat(chatId)
         }
 
         incomingObserverJob = viewModelScope.launch {
@@ -157,26 +170,16 @@ class CallViewModel(
                     if (_uiState.value.phase == CallUiPhase.Hidden) {
                         isCaller = false
                         activeCallType = call.callType
-                        observeCall(call.id)
-                        startProximityControl()
-                        _uiState.update {
-                            it.copy(
-                                phase = CallUiPhase.IncomingRinging,
-                                callId = call.id,
-                                callType = call.callType,
-                                isSpeakerOn = call.callType == CallType.VIDEO,
-                                selectedAudioRoute = if (call.callType == CallType.VIDEO) {
-                                    CallAudioRouteType.SPEAKER
-                                } else {
-                                    CallAudioRouteType.EARPIECE
-                                },
-                                isMinimized = false,
-                                statusMessage = null,
-                            )
-                        }
-                        if (call.callType == CallType.VIDEO) {
-                            viewModelScope.launch { ensureWebRtc() }
-                        }
+                        activateIncomingCall(call)
+                    }
+                }
+        }
+        activeCallObserverJob = viewModelScope.launch {
+            callRepository.observeActiveCallForCalleeChat(chatId, currentUserId)
+                .catch { /* ignore listener errors */ }
+                .collect { call ->
+                    if (call != null && _uiState.value.phase == CallUiPhase.Hidden) {
+                        activateActiveCallForDisplay(call)
                     }
                 }
         }
@@ -190,6 +193,88 @@ class CallViewModel(
                             ?.value)
                     }
                 }
+        }
+    }
+
+    private fun activateIncomingCall(call: VoiceCall) {
+        isCaller = false
+        activeCallType = call.callType
+        observeCall(call.id)
+        startProximityControl()
+        _uiState.update {
+            it.copy(
+                phase = CallUiPhase.IncomingRinging,
+                isOutgoing = false,
+                callId = call.id,
+                callType = call.callType,
+                isSpeakerOn = call.callType == CallType.VIDEO,
+                selectedAudioRoute = if (call.callType == CallType.VIDEO) {
+                    CallAudioRouteType.SPEAKER
+                } else {
+                    CallAudioRouteType.EARPIECE
+                },
+                isMinimized = false,
+                statusMessage = null,
+            )
+        }
+        if (call.callType == CallType.VIDEO) {
+            viewModelScope.launch { ensureWebRtc() }
+        }
+    }
+
+    private fun restorePendingCallForChat(chatId: String) {
+        val pending = PendingCallStore.peek(getApplication()) ?: return
+        if (pending.first != chatId) return
+        PendingCallStore.clear(getApplication())
+        viewModelScope.launch {
+            val pendingCall = callRepository.getCall(pending.second).getOrNull()
+            if (pendingCall?.state == VoiceCallState.RINGING) {
+                activateIncomingCall(pendingCall)
+            } else if (pendingCall != null) {
+                activateActiveCallForDisplay(pendingCall)
+            } else {
+                observeCall(pending.second)
+            }
+        }
+    }
+
+    /** Rehydrates the visible caller UI while the media engine remains in the service. */
+    private fun activateActiveCallForDisplay(call: VoiceCall) {
+        isCaller = call.callerId == currentUserId
+        activeCallType = call.callType
+        if (call.state == VoiceCallState.IN_CALL && inCallStartedAt == null) {
+            inCallStartedAt = call.updatedAt?.toDate()?.time ?: System.currentTimeMillis()
+        }
+        observeCall(call.id)
+        startProximityControl()
+        _uiState.update {
+            it.copy(
+                phase = if (call.state == VoiceCallState.IN_CALL) {
+                    CallUiPhase.InCall
+                } else {
+                    CallUiPhase.Connecting
+                },
+                isOutgoing = isCaller,
+                callId = call.id,
+                callType = call.callType,
+                isSpeakerOn = call.callType == CallType.VIDEO,
+                selectedAudioRoute = if (call.callType == CallType.VIDEO) {
+                    CallAudioRouteType.SPEAKER
+                } else {
+                    CallAudioRouteType.EARPIECE
+                },
+                isMinimized = false,
+                statusMessage = null,
+            )
+        }
+        if (call.state == VoiceCallState.IN_CALL) {
+            // The call may already be IN_CALL before the listener is attached.
+            // Start the visible timer immediately instead of relying on a
+            // second Firestore emission to trigger onConnected().
+            startDurationTicker()
+        }
+        if (call.callType == CallType.VIDEO) {
+            viewModelScope.launch { ensureWebRtc() }
         }
     }
 
@@ -215,6 +300,7 @@ class CallViewModel(
                     _uiState.update {
                         it.copy(
                             phase = CallUiPhase.OutgoingRinging,
+                            isOutgoing = true,
                             callId = call.id,
                             callType = callType,
                             isSpeakerOn = callType == CallType.VIDEO,
@@ -257,8 +343,39 @@ class CallViewModel(
             return
         }
         ringTimeoutJob?.cancel()
+        _uiState.value.chatId?.takeIf { it.isNotBlank() }?.let {
+            TerminalNotificationManager.clear(getApplication(), it, isCall = true)
+        }
         viewModelScope.launch {
             callRepository.updateCallState(callId, VoiceCallState.ACCEPTED)
+            _uiState.update { it.copy(phase = CallUiPhase.Connecting) }
+            startProximityControl()
+            if (!ensureWebRtc()) {
+                failCall(END_REASON_CAMERA_START_FAILED)
+            }
+        }
+    }
+
+    /** Accepts a ringing call after a notification action has created the invisible host. */
+    fun acceptIncomingCallInBackground(callId: String) {
+        viewModelScope.launch {
+            val call = callRepository.getCall(callId).getOrNull() ?: return@launch
+            if (call.state != VoiceCallState.RINGING && call.state != VoiceCallState.ACCEPTED) return@launch
+            if (_uiState.value.callId != call.id) {
+                activateIncomingCall(call)
+            }
+            ringTimeoutJob?.cancel()
+            // Notification actions are already user-confirmed. Keep this on the
+            // normal ViewModel/WebRTC path, but do not reject the action because
+            // the background connectivity probe has not initialized yet.
+            if (call.state == VoiceCallState.RINGING) {
+                if (callRepository.updateCallState(callId, VoiceCallState.ACCEPTED).isFailure) {
+                    return@launch
+                }
+            }
+            _uiState.value.chatId?.takeIf { it.isNotBlank() }?.let {
+                TerminalNotificationManager.clear(getApplication(), it, isCall = true)
+            }
             _uiState.update { it.copy(phase = CallUiPhase.Connecting) }
             startProximityControl()
             if (!ensureWebRtc()) {
@@ -277,11 +394,17 @@ class CallViewModel(
     }
 
     fun endActiveCall() {
+        val beforeConnection = _uiState.value.phase == CallUiPhase.OutgoingRinging ||
+            _uiState.value.phase == CallUiPhase.Connecting
         endCall(
-            state = VoiceCallState.ENDED,
-            message = callTypeMessage(R.string.call_ended, R.string.video_call_ended),
-            logStatus = SessionLogStatus.COMPLETED,
-            endedReason = END_REASON_LOCAL_ENDED,
+            state = if (beforeConnection) VoiceCallState.MISSED else VoiceCallState.ENDED,
+            message = if (beforeConnection) {
+                getApplication<Application>().getString(R.string.call_no_answer)
+            } else {
+                callTypeMessage(R.string.call_ended, R.string.video_call_ended)
+            },
+            logStatus = if (beforeConnection) SessionLogStatus.MISSED else SessionLogStatus.COMPLETED,
+            endedReason = if (beforeConnection) END_REASON_MISSED_LOCAL_CANCEL else END_REASON_LOCAL_ENDED,
         )
     }
 
@@ -301,9 +424,16 @@ class CallViewModel(
 
     fun selectAudioRoute(route: CallAudioRouteType) {
         ensureAudioRouteController()
+        preferredAudioRoute = route
         audioRouteController?.selectRoute(route)
+        webRtc?.setRemoteAudioEnabled(true)
+        _uiState.update { it.copy(isRemoteAudioMuted = false) }
         applySpeakerAndProximity()
         updateAudioRouteState()
+        if (isCaller && _uiState.value.phase == CallUiPhase.OutgoingRinging) {
+            stopOutgoingRingback()
+            startOutgoingRingback()
+        }
     }
 
     fun toggleSpeakerRoute() {
@@ -321,6 +451,12 @@ class CallViewModel(
         val muted = !_uiState.value.isMuted
         webRtc?.setMuted(muted)
         _uiState.update { it.copy(isMuted = muted) }
+    }
+
+    fun toggleRemoteAudio() {
+        val muted = !_uiState.value.isRemoteAudioMuted
+        webRtc?.setRemoteAudioEnabled(!muted)
+        _uiState.update { it.copy(isRemoteAudioMuted = muted) }
     }
 
     fun toggleVideo() {
@@ -348,6 +484,10 @@ class CallViewModel(
                 context = getApplication(),
                 callType = CallType.VIDEO,
                 isScreenSharing = true,
+                callId = _uiState.value.callId,
+                chatId = _uiState.value.chatId,
+                callStartedAt = inCallStartedAt,
+                showCallControls = callNotificationControls,
             )
             delay(MEDIA_PROJECTION_FOREGROUND_DELAY_MS)
             if (_uiState.value.callType != CallType.VIDEO || _uiState.value.phase != CallUiPhase.InCall) return@launch
@@ -366,6 +506,10 @@ class CallViewModel(
                     context = getApplication(),
                     callType = CallType.VIDEO,
                     isScreenSharing = false,
+                    callId = _uiState.value.callId,
+                    chatId = _uiState.value.chatId,
+                    callStartedAt = inCallStartedAt,
+                    showCallControls = callNotificationControls,
                 )
                 emitSnackbar(getApplication<Application>().getString(R.string.call_screen_share_failed))
             }
@@ -387,6 +531,10 @@ class CallViewModel(
                 context = getApplication(),
                 callType = _uiState.value.callType,
                 isScreenSharing = false,
+                callId = _uiState.value.callId,
+                chatId = _uiState.value.chatId,
+                callStartedAt = inCallStartedAt,
+                showCallControls = callNotificationControls,
             )
         }
     }
@@ -401,6 +549,10 @@ class CallViewModel(
             callType = CallType.VIDEO,
             isScreenSharing = true,
             isScreenSharePaused = paused,
+            callId = _uiState.value.callId,
+            chatId = _uiState.value.chatId,
+            callStartedAt = inCallStartedAt,
+            showCallControls = callNotificationControls,
         )
     }
 
@@ -596,6 +748,12 @@ class CallViewModel(
             }
         }
         webRtc = engine
+        if (_uiState.value.isMuted) {
+            engine.setMuted(true)
+        }
+        if (_uiState.value.isRemoteAudioMuted) {
+            engine.setRemoteAudioEnabled(false)
+        }
         engine.createPeerConnection()
         pendingLocalRenderer?.let(engine::bindLocalRenderer)
         pendingRemoteRenderer?.let(engine::bindRemoteRenderer)
@@ -693,7 +851,10 @@ class CallViewModel(
     private fun startCallAudio() {
         ensureAudioRouteController()
         audioRouteController?.beginCallAudio()
-        val preferredRoute = audioRouteController?.preferredDefaultRoute(_uiState.value.callType == CallType.VIDEO)
+        val availableRoutes = audioRouteController?.availableRoutes()?.map { it.type }.orEmpty()
+        val preferredRoute = preferredAudioRoute
+            ?.takeIf { it in availableRoutes }
+            ?: audioRouteController?.preferredDefaultRoute(_uiState.value.callType == CallType.VIDEO)
             ?: _uiState.value.selectedAudioRoute
         audioRouteController?.selectRoute(preferredRoute)
         applySpeakerAndProximity()
@@ -779,9 +940,19 @@ class CallViewModel(
         if (connectedNotified) return
         connectedNotified = true
         val callId = _uiState.value.callId ?: return
-        inCallStartedAt = System.currentTimeMillis()
+        // A rehydrated caller screen may already have the server's IN_CALL
+        // timestamp; retain it so the timer does not restart at zero.
+        inCallStartedAt = inCallStartedAt ?: System.currentTimeMillis()
         callRepository.updateCallState(callId, VoiceCallState.IN_CALL)
-        CallForegroundServiceController.start(getApplication(), _uiState.value.callType, _uiState.value.isScreenSharing)
+        CallForegroundServiceController.start(
+            context = getApplication(),
+            callType = _uiState.value.callType,
+            isScreenSharing = _uiState.value.isScreenSharing,
+            callId = callId,
+            chatId = _uiState.value.chatId,
+            callStartedAt = inCallStartedAt,
+            showCallControls = callNotificationControls,
+        )
         startProximityControl()
         _uiState.update { it.copy(phase = CallUiPhase.InCall, statusMessage = null) }
         startDurationTicker()
@@ -805,6 +976,9 @@ class CallViewModel(
         endedReason: String,
     ) {
         val callId = _uiState.value.callId
+        chatId?.takeIf { it.isNotBlank() }?.let {
+            TerminalNotificationManager.clear(getApplication(), it, isCall = true)
+        }
         viewModelScope.launch {
             logStatus?.let { status ->
                 val durationSec = if (status == SessionLogStatus.COMPLETED) {
@@ -837,7 +1011,15 @@ class CallViewModel(
             durationSec = durationSec,
             callType = activeCallType,
             callInitiatorId = if (isCaller) userId else recipient,
+            callId = callId,
         )
+        if (isCaller && status == SessionLogStatus.MISSED && callNotificationControls) {
+            TerminalNotificationManager.showCallOutcomeNotification(
+                getApplication(),
+                activeCallType,
+                "not_answered",
+            )
+        }
     }
 
     private fun callTypeMessage(voiceRes: Int, videoRes: Int): String {
@@ -892,6 +1074,7 @@ class CallViewModel(
         reconnectTimeoutJob?.cancel()
         reconnectTimeoutJob = null
         stopOutgoingRingback()
+        preferredAudioRoute = null
         webRtc?.stopScreenShare()
         iceListener?.remove()
         iceListener = null
@@ -912,9 +1095,11 @@ class CallViewModel(
             _uiState.update {
                 it.copy(
                     phase = CallUiPhase.Hidden,
+                    isOutgoing = false,
                     callId = null,
                     callType = CallType.VOICE,
                     isMuted = false,
+                    isRemoteAudioMuted = false,
                     isSpeakerOn = false,
                     isVideoEnabled = true,
                     isFrontCamera = true,
@@ -931,8 +1116,10 @@ class CallViewModel(
             _uiState.update {
                 it.copy(
                     callId = null,
+                    isOutgoing = false,
                     callType = CallType.VOICE,
                     isMuted = false,
+                    isRemoteAudioMuted = false,
                     isSpeakerOn = false,
                     isVideoEnabled = true,
                     isFrontCamera = true,
@@ -951,6 +1138,7 @@ class CallViewModel(
     private fun teardownObservers() {
         callObserverJob?.cancel()
         incomingObserverJob?.cancel()
+        activeCallObserverJob?.cancel()
         allIncomingObserverJob?.cancel()
     }
 
@@ -961,12 +1149,20 @@ class CallViewModel(
         super.onCleared()
     }
 
+    /** Releases the UI-independent call engine without recursively stopping its host service. */
+    fun clearForServiceShutdown() {
+        teardownObservers()
+        screenShareActionJob?.cancel()
+        cleanupCall()
+    }
+
     companion object {
         private const val RING_TIMEOUT_MS = 45_000L
         private const val RECONNECT_TIMEOUT_MS = 12_000L
         private const val MEDIA_PROJECTION_FOREGROUND_DELAY_MS = 650L
         private const val STATUS_DISMISS_MS = 2_500L
         private const val END_REASON_LOCAL_ENDED = "local_ended"
+        private const val END_REASON_MISSED_LOCAL_CANCEL = "missed_local_cancel"
         private const val END_REASON_DECLINED = "declined"
         private const val END_REASON_MISSED_TIMEOUT = "missed_timeout"
         private const val END_REASON_BUSY = "busy"
