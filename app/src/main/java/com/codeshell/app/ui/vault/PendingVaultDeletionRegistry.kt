@@ -10,32 +10,24 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object PendingVaultDeletionRegistry {
 
-    private val pending = ConcurrentHashMap<String, VaultItem>()
-    private var generation = 0L
+    private val pending = ConcurrentHashMap<Long, Map<String, VaultItem>>()
+    private var nextToken = 0L
 
     @Synchronized
     fun stage(items: Collection<VaultItem>): Long {
-        items.forEach { pending[it.id] = it }
-        generation++
-        return generation
+        val token = ++nextToken
+        pending[token] = items.associateBy { it.id }
+        return token
     }
 
     @Synchronized
-    fun pendingIds(): Set<String> = pending.keys.toSet()
+    fun pendingIds(): Set<String> = pending.values.flatMapTo(mutableSetOf()) { it.keys }
 
     @Synchronized
     fun flush(token: Long): List<VaultItem> {
-        if (token != generation) return emptyList()
-        val result = pending.values.toList()
-        pending.clear()
-        return result
+        return pending.remove(token)?.values?.toList().orEmpty()
     }
 
     @Synchronized
-    fun undo(): List<VaultItem> {
-        val result = pending.values.toList()
-        pending.clear()
-        generation++
-        return result
-    }
+    fun undo(token: Long): List<VaultItem> = pending.remove(token)?.values?.toList().orEmpty()
 }

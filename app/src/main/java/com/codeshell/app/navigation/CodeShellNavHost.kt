@@ -238,6 +238,9 @@ fun CodeShellNavHost(
                 onOpenSettings = {
                     navController.navigate(Routes.settings(chatId))
                 },
+                onOpenVaultPicker = {
+                    navController.navigate(Routes.settings(chatId, openVaultPicker = true))
+                },
                 onOpenVault = {
                     navController.navigate(Routes.vault())
                 },
@@ -342,12 +345,18 @@ fun CodeShellNavHost(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("openVaultPicker") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
             ),
         ) { backStackEntry ->
             val settingsChatId = backStackEntry.arguments?.getString("chatId")
                 ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
+            val openVaultPicker = backStackEntry.arguments?.getBoolean("openVaultPicker") ?: false
             SettingsScreen(
                 chatId = settingsChatId,
+                openVaultPicker = openVaultPicker,
                 onNavigateBack = { navController.popBackStack() },
                 onSignedOut = navigateToLogin,
                 onInactivityTimeout = navigateToLearning,

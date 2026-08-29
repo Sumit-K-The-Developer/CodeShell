@@ -6,7 +6,9 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
@@ -32,8 +34,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.codeshell.app.R
@@ -50,6 +55,7 @@ fun LearningWebView(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
@@ -57,9 +63,7 @@ fun LearningWebView(
     fun openInExternalBrowser() {
         runCatching {
             context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
             )
         }
     }
@@ -82,6 +86,14 @@ fun LearningWebView(
                     Text(
                         text = title,
                         maxLines = 1,
+                        modifier = Modifier.pointerInput(title, url) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    clipboardManager.setText(AnnotatedString(url))
+                                    Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                                },
+                            )
+                        },
                     )
                 },
                 navigationIcon = {

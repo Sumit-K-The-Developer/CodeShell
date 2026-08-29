@@ -19,6 +19,9 @@ data class VaultItem(
         get() = mimeType.startsWith("video/") || mimeTypeForFileName(fileName).startsWith("video/")
     val isImage: Boolean
         get() = mimeType.startsWith("image/") || mimeTypeForFileName(fileName).startsWith("image/")
+    val isZip: Boolean
+        get() = mimeType.equals("application/zip", ignoreCase = true) ||
+            fileName.endsWith(".zip", ignoreCase = true)
 
     val extension: String get() {
         val dot = fileName.lastIndexOf('.')

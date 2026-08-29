@@ -7,7 +7,7 @@ object Routes {
     const val HOME = "home"
     const val CHAT = "chat/{chatId}"
     const val MEDIA = "media/{type}"
-    const val SETTINGS = "settings?chatId={chatId}"
+    const val SETTINGS = "settings?chatId={chatId}&openVaultPicker={openVaultPicker}"
     const val AI_TUTOR = "ai_tutor/{topicId}?entrySource={entrySource}&welcomeDigits={welcomeDigits}&topicLabel={topicLabel}"
     const val VAULT = "vault"
 
@@ -15,8 +15,15 @@ object Routes {
     fun media(type: String) = "media/$type"
     fun home() = "home"
     fun vault() = "vault"
-    fun settings(chatId: String? = null): String =
-        if (chatId.isNullOrBlank()) "settings" else "settings?chatId=${java.net.URLEncoder.encode(chatId, Charsets.UTF_8.name())}"
+    fun settings(chatId: String? = null, openVaultPicker: Boolean = false): String {
+        val query = buildList {
+            if (!chatId.isNullOrBlank()) {
+                add("chatId=${java.net.URLEncoder.encode(chatId, Charsets.UTF_8.name())}")
+            }
+            if (openVaultPicker) add("openVaultPicker=true")
+        }
+        return if (query.isEmpty()) "settings" else "settings?${query.joinToString("&")}"
+    }
     fun aiTutor(
         topicId: String,
         topicLabel: String,
@@ -31,7 +38,8 @@ object Routes {
 
 fun String.decodeFromRoute(): String = java.net.URLDecoder.decode(this, Charsets.UTF_8.name())
 
-fun String?.requiresSecureScreen(): Boolean = isTerminalRoute()
+fun String?.requiresSecureScreen(): Boolean =
+    isTerminalRoute() || this == Routes.CODING_LEARN
 
 fun String?.isTerminalRoute(): Boolean = when {
     this == null -> false

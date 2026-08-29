@@ -85,6 +85,16 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            appPreferences.disconnectOnDeviceLock.collect { enabled ->
+                _uiState.update { it.copy(disconnectOnDeviceLock = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            appPreferences.vaultGridColumns.collect { columns ->
+                _uiState.update { it.copy(vaultGridColumns = columns) }
+            }
+        }
+        viewModelScope.launch {
             appPreferences.closeChatOnInactivity.collect { enabled ->
                 _uiState.update { it.copy(closeChatOnInactivity = enabled) }
             }
@@ -192,6 +202,20 @@ class SettingsViewModel(
         viewModelScope.launch {
             appPreferences.setTerminateOnLock(enabled)
             _uiState.update { it.copy(successMessage = "Setting updated") }
+        }
+    }
+
+    fun setDisconnectOnDeviceLock(enabled: Boolean) {
+        viewModelScope.launch {
+            appPreferences.setDisconnectOnDeviceLock(enabled)
+            _uiState.update { it.copy(successMessage = "Setting updated") }
+        }
+    }
+
+    fun setVaultGridColumns(columns: Int) {
+        viewModelScope.launch {
+            appPreferences.setVaultGridColumns(columns)
+            _uiState.update { it.copy(vaultGridColumns = if (columns == 4) 4 else 3) }
         }
     }
 
@@ -616,6 +640,8 @@ data class SettingsUiState(
     val displayId: String = "",
     val hideOnHomePress: Boolean = true,
     val terminateOnLock: Boolean = true,
+    val disconnectOnDeviceLock: Boolean = true,
+    val vaultGridColumns: Int = 3,
     val secureTerminalOnly: Boolean = true,
     val chatTitleDoubleTapVaultCapture: Boolean = false,
     val closeChatOnInactivity: Boolean = false,

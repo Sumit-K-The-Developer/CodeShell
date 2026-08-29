@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -201,6 +202,7 @@ fun ChatInputBar(
     onPickImage: () -> Unit,
     onTakePhoto: () -> Unit,
     onPickFile: () -> Unit,
+    onPickVault: () -> Unit,
     theme: ChatTheme,
     hasDrafts: Boolean = false,
     drafts: List<DraftMedia> = emptyList(),
@@ -382,6 +384,12 @@ fun ChatInputBar(
                     contentDescription = stringResource(R.string.attach_file),
                     tint = colors.accent,
                     icon = Icons.Default.AttachFile,
+                )
+                AttachIconButton(
+                    onClick = onPickVault,
+                    contentDescription = stringResource(R.string.attach_vault),
+                    tint = colors.accent,
+                    icon = Icons.Default.Folder,
                 )
             }
         }

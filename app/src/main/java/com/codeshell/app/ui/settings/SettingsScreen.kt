@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -104,6 +105,9 @@ import com.codeshell.app.R
 import com.codeshell.app.data.model.ChatInterfaceStyle
 import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.data.preferences.AppPreferences
+import com.codeshell.app.ui.chat.ChatAccessLockOverlay
+import com.codeshell.app.ui.chat.ChatVaultPickerDialog
+import com.codeshell.app.ui.chat.rememberAdaptiveChatTheme
 import com.codeshell.app.ui.chat.rememberChatColors
 import com.codeshell.app.ui.components.CodeShellDialog
 import com.codeshell.app.ui.components.CodeShellDialogAction
@@ -112,9 +116,12 @@ import com.codeshell.app.ui.components.CodeShellChoiceDivider
 import com.codeshell.app.ui.components.OfflineBanner
 import com.codeshell.app.ui.components.ProfilePhotoCropDialog
 import com.codeshell.app.ui.theme.DisguiseTheme
+import com.codeshell.app.ui.vault.PendingChatVaultPick
+import com.codeshell.app.ui.vault.VaultAccessSession
 import com.codeshell.app.ui.vault.VaultSaveState
 import com.codeshell.app.ui.vault.VaultSaveTracker
 import com.codeshell.app.ui.vault.VaultViewModel
+import com.codeshell.app.util.ChatAccessCodeHasher
 import com.codeshell.app.util.ChatInactivityTimeout
 import com.codeshell.app.util.ChatMessageFontScale
 import com.codeshell.app.util.filterFourDigitCode
@@ -127,6 +134,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -143,6 +151,7 @@ private val TopBarBackground: Color
 @Composable
 fun SettingsScreen(
     chatId: String? = null,
+    openVaultPicker: Boolean = false,
     onNavigateBack: () -> Unit,
     onSignedOut: () -> Unit,
     onInactivityTimeout: () -> Unit = onNavigateBack,
@@ -155,8 +164,19 @@ fun SettingsScreen(
     val viewModel: SettingsViewModel = viewModel { SettingsViewModel(app, chatId) }
     val vaultViewModel: VaultViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val vaultUiState by vaultViewModel.uiState.collectAsStateWithLifecycle()
     val vaultSaveState by VaultSaveTracker.state.collectAsStateWithLifecycle()
     val chatColors = rememberChatColors()
+    val appPreferences = remember { AppPreferences(context.applicationContext) }
+    val accessCodeEnabled by appPreferences.chatAccessCodeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val vaultAccessUnlocked by VaultAccessSession.unlocked.collectAsStateWithLifecycle()
+    val vaultTheme = rememberAdaptiveChatTheme(
+        if (uiState.chatInterfaceStyle == ChatInterfaceStyle.IDE_LIGHT) {
+            ChatInterfaceStyle.IDE_LIGHT
+        } else {
+            ChatInterfaceStyle.DEFAULT
+        }
+    )
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showSignOutDialog by remember { mutableStateOf(false) }
     var showSetupAccessCodeDialog by remember { mutableStateOf(false) }
@@ -189,6 +209,9 @@ fun SettingsScreen(
     var profilePhotoEditLoading by remember { mutableStateOf(false) }
     var profilePhotoUpdating by remember { mutableStateOf(false) }
     var showWallpaperVaultPicker by remember { mutableStateOf(false) }
+    var showChatVaultPicker by remember { mutableStateOf(false) }
+    var vaultAccessDigits by remember { mutableStateOf("") }
+    var vaultAccessError by remember { mutableStateOf<String?>(null) }
     var externalProfilePhotoFlowActive by remember { mutableStateOf(false) }
     var notificationPermissionGranted by remember {
         mutableStateOf(
@@ -228,6 +251,10 @@ fun SettingsScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { VaultAccessSession.lock() }
     }
 
     LaunchedEffect(notificationPermissionGranted) {
@@ -527,19 +554,33 @@ fun SettingsScreen(
                                 .padding(top = 8.dp),
                         )
                     }
-                    SettingsToggleRow(
-                        title = stringResource(R.string.new_terminal_alert),
-                        description = stringResource(R.string.new_terminal_alert_desc),
-                        checked = uiState.newTerminalAlert,
-                        onCheckedChange = ::onNewTerminalAlertToggle,
-                    )
-                    if (uiState.newTerminalAlert) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
                         SettingsToggleRow(
-                            title = stringResource(R.string.call_notification_controls),
-                            description = stringResource(R.string.call_notification_controls_desc),
-                            checked = uiState.callNotificationControls,
-                            onCheckedChange = viewModel::setCallNotificationControls,
-                            enabled = !uiState.chatAccessCodeEnabled,
+                            title = stringResource(R.string.new_terminal_alert),
+                            description = stringResource(R.string.new_terminal_alert_desc),
+                            checked = uiState.newTerminalAlert,
+                            onCheckedChange = ::onNewTerminalAlertToggle,
+                        )
+                        if (uiState.newTerminalAlert) {
+                            SettingsToggleRow(
+                                title = stringResource(R.string.call_notification_controls),
+                                description = stringResource(R.string.call_notification_controls_desc),
+                                checked = uiState.callNotificationControls,
+                                onCheckedChange = viewModel::setCallNotificationControls,
+                                enabled = !uiState.chatAccessCodeEnabled,
+                            )
+                        }
+                        SettingsToggleRow(
+                            title = stringResource(R.string.disconnect_on_device_lock),
+                            description = stringResource(R.string.disconnect_on_device_lock_desc),
+                            checked = uiState.disconnectOnDeviceLock,
+                            onCheckedChange = viewModel::setDisconnectOnDeviceLock,
                         )
                     }
                     if (uiState.newTerminalAlert && !notificationPermissionGranted) {
@@ -610,6 +651,29 @@ fun SettingsScreen(
                         onStyleSelected = viewModel::setChatInterfaceStyle,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Text(
+                        text = stringResource(R.string.vault_view_grid),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = EditorDefaultText,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChip(
+                            selected = uiState.vaultGridColumns == 3,
+                            onClick = { viewModel.setVaultGridColumns(3) },
+                            label = { Text(stringResource(R.string.vault_view_grid_3)) },
+                        )
+                        FilterChip(
+                            selected = uiState.vaultGridColumns == 4,
+                            onClick = { viewModel.setVaultGridColumns(4) },
+                            label = { Text(stringResource(R.string.vault_view_grid_4)) },
+                        )
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -651,7 +715,16 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
                     TextButton(
-                        onClick = onOpenVault,
+                        onClick = {
+                            if (!openVaultPicker) {
+                                onOpenVault()
+                                return@TextButton
+                            }
+                            vaultAccessDigits = ""
+                            vaultAccessError = null
+                            vaultViewModel.loadItems()
+                            showChatVaultPicker = true
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Vault")
@@ -793,6 +866,7 @@ fun SettingsScreen(
                     onClick = {
                         viewModel.enableChatAccessCode(setupPin, setupConfirm) { error ->
                             if (error == null) {
+                                Toast.makeText(context, R.string.chat_access_code_enabled, Toast.LENGTH_SHORT).show()
                                 showSetupAccessCodeDialog = false
                                 setupPin = ""
                                 setupConfirm = ""
@@ -985,6 +1059,54 @@ fun SettingsScreen(
         )
     }
 
+    if (showChatVaultPicker) {
+        if (accessCodeEnabled && !vaultAccessUnlocked) {
+            ChatAccessLockOverlay(
+                digits = vaultAccessDigits,
+                onDigitsChange = {
+                    vaultAccessDigits = it
+                    vaultAccessError = null
+                },
+                onComplete = { code ->
+                    scope.launch {
+                        val storedHash = appPreferences.chatAccessCodeHash.first()
+                        if (ChatAccessCodeHasher.verify(code, storedHash)) {
+                            VaultAccessSession.unlock()
+                            vaultAccessDigits = ""
+                        } else {
+                            vaultAccessDigits = ""
+                            vaultAccessError = "Incorrect access code"
+                        }
+                    }
+                },
+                errorMessage = vaultAccessError,
+                theme = vaultTheme,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            ChatVaultPickerDialog(
+                items = vaultUiState.items,
+                loading = vaultUiState.isLoading,
+                onThumbnail = vaultViewModel::getThumbnailBytes,
+                onAddDrafts = { selected ->
+                    PendingChatVaultPick.setAll(selected.map { it.id })
+                    VaultAccessSession.lock()
+                    showChatVaultPicker = false
+                    onNavigateBack()
+                },
+                onCancel = {
+                    VaultAccessSession.lock()
+                    showChatVaultPicker = false
+                    onNavigateBack()
+                },
+                onDismiss = {
+                    VaultAccessSession.lock()
+                    showChatVaultPicker = false
+                },
+            )
+        }
+    }
+
     if (showDisableAccessCodeDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -992,7 +1114,7 @@ fun SettingsScreen(
                 disablePin = ""
                 accessCodeDialogError = null
             },
-            title = { Text(stringResource(R.string.chat_access_code)) },
+            title = { Text(stringResource(R.string.chat_access_code_remove)) },
             text = {
                 Column {
                     OutlinedTextField(
@@ -1036,6 +1158,7 @@ fun SettingsScreen(
                     onClick = {
                         viewModel.disableChatAccessCode(disablePin) { error ->
                             if (error == null) {
+                                Toast.makeText(context, R.string.chat_access_code_disabled, Toast.LENGTH_SHORT).show()
                                 showDisableAccessCodeDialog = false
                                 disablePin = ""
                                 accessCodeDialogError = null
@@ -1045,7 +1168,7 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text(stringResource(R.string.chat_access_code))
+                    Text(stringResource(R.string.chat_access_code_remove))
                 }
             },
             dismissButton = {
@@ -1171,6 +1294,7 @@ fun SettingsScreen(
                     onClick = {
                         viewModel.changeChatAccessCode(changeCurrentPin, changeNewPin, changeConfirmPin) { error ->
                             if (error == null) {
+                                Toast.makeText(context, R.string.chat_access_code_changed, Toast.LENGTH_SHORT).show()
                                 showChangeAccessCodeDialog = false
                                 changeCurrentPin = ""
                                 changeNewPin = ""

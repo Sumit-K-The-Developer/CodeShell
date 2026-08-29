@@ -137,6 +137,8 @@ import com.codeshell.app.util.MediaPreloadCache
 import com.codeshell.app.util.UsernameFormatter
 import com.codeshell.app.util.findActivity
 import com.codeshell.app.ui.vault.VaultViewModel
+import com.codeshell.app.ui.vault.VaultDuplicateImportDialog
+import com.codeshell.app.ui.vault.vaultImportSummaryMessage
 import com.codeshell.app.ui.vault.VaultSaveState
 import com.codeshell.app.ui.vault.VaultSaveTracker
 import com.codeshell.app.data.repository.VaultRepository
@@ -225,7 +227,7 @@ fun HomeScreen(
         uiState.chats.size,
         uiState.selectedChatIds,
         uiState.accessCodeInput,
-        enabled = !uiState.isAccessLocked,
+        enabled = !uiState.isAccessLocked || uiState.vaultSendBypassActive,
         blocked = uiState.selectionMode ||
             showBlockDialog ||
             showDeleteDialog ||
@@ -258,10 +260,10 @@ fun HomeScreen(
         }
         vaultViewModel.saveToVaultFromUris(
             uris = mediaUris,
-            onAllComplete = {
+            onAllComplete = { summary ->
                 scope.launch {
                     val result = snackbarHostState.showSnackbar(
-                        message = context.getString(R.string.saved_to_vault),
+                        message = vaultImportSummaryMessage(summary),
                         actionLabel = context.getString(R.string.view),
                     )
                     if (result == SnackbarResult.ActionPerformed) {
@@ -278,23 +280,46 @@ fun HomeScreen(
         val content = pendingSharedContent ?: return
         val selectedChatIds = uiState.selectedChatIds
         if (selectedChatIds.isEmpty() || multiSendInProgress) return
-        viewModel.sendSharedContentToChats(content, selectedChatIds)
-        PendingSharedContent.clear()
-        pendingSharedContent = null
-        multiSendInProgress = false
-        viewModel.cancelSelection()
-        scope.launch {
-            snackbarHostState.showSnackbar("Sent")
+        multiSendInProgress = true
+        viewModel.sendSharedContentToChats(content, selectedChatIds) { success ->
+            scope.launch {
+                multiSendInProgress = false
+                if (success) {
+                    PendingSharedContent.clear()
+                    pendingSharedContent = null
+                    viewModel.cancelSelection()
+                    snackbarHostState.showSnackbar("Sent")
+                } else {
+                    snackbarHostState.showSnackbar("Could not send to all selected chats")
+                }
+            }
         }
     }
 
     fun sendPendingVaultItemsToSelectedChats() {
         val selectedChatIds = uiState.selectedChatIds
         if (vaultSendItemIds.isEmpty() || selectedChatIds.isEmpty()) return
-        vaultViewModel.sendVaultItemsToChats(vaultSendItemIds, selectedChatIds)
-        viewModel.clearVaultSendFlag()
-        viewModel.cancelSelection()
-        scope.launch { snackbarHostState.showSnackbar("Sent") }
+        if (selectedChatIds.size == 1) {
+            PendingChatDraft.set(vaultSendItemIds)
+            viewModel.clearVaultSendFlag()
+            viewModel.cancelSelection()
+            onOpenChat(selectedChatIds.first())
+            return
+        }
+        if (multiSendInProgress) return
+        multiSendInProgress = true
+        vaultViewModel.sendVaultItemsToChats(vaultSendItemIds, selectedChatIds) { success ->
+            scope.launch {
+                multiSendInProgress = false
+                if (success) {
+                    viewModel.clearVaultSendFlag()
+                    viewModel.cancelSelection()
+                    snackbarHostState.showSnackbar("Sent")
+                } else {
+                    snackbarHostState.showSnackbar("Could not send to all selected chats")
+                }
+            }
+        }
     }
 
     BackHandler(enabled = uiState.selectionMode) {
@@ -565,15 +590,20 @@ fun HomeScreen(
                 )
 
                 if (pendingSharedContent != null) {
-                    Text(
-                        text = "Select a tile to send",
-                        color = listColors.accent,
-                        style = MaterialTheme.typography.labelMedium,
-                        textAlign = TextAlign.Center,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 6.dp),
-                    )
+                            .background(listColors.accent.copy(alpha = 0.12f))
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Select a tile to send",
+                            color = listColors.accent,
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
 
                 uiState.searchMessage?.let { message ->
@@ -697,6 +727,7 @@ fun HomeScreen(
                                     viewModel.toggleChatSelection(chat.chatId)
                                 } else if (pendingSharedContent != null) {
                                     if (!viewModel.isBotChat(chat)) {
+                                        PendingSharedContent.allowChatConsumption()
                                         onOpenChat(chat.chatId)
                                         pendingSharedContent = null
                                     }
@@ -709,6 +740,7 @@ fun HomeScreen(
                                 if (!uiState.selectionMode) {
                                     if (pendingSharedContent != null) {
                                         if (!viewModel.isBotChat(chat)) {
+                                            PendingSharedContent.allowChatConsumption()
                                             onOpenChat(chat.chatId)
                                             pendingSharedContent = null
                                         }
@@ -782,12 +814,19 @@ fun HomeScreen(
                 }
             }
         }
-        if (uiState.isAccessLocked) {
+        if (uiState.isAccessLocked && !uiState.vaultSendBypassActive) {
             ChatAccessLockOverlay(
                 digits = uiState.accessCodeInput,
                 onDigitsChange = viewModel::onAccessCodeInputChange,
                 onComplete = { viewModel.submitAccessCode(::handleTerminalRevoked) },
                 theme = chatTheme,
+            )
+        }
+        vaultUiState.pendingDuplicateImports.firstOrNull()?.let { duplicate ->
+            VaultDuplicateImportDialog(
+                duplicate = duplicate,
+                onReplace = { vaultViewModel.resolveDuplicateImport(replace = true) },
+                onSkip = { vaultViewModel.resolveDuplicateImport(replace = false) },
             )
         }
         expandedProfilePhotoUrl?.let { photoUrl ->

@@ -78,7 +78,17 @@ class CodeShellMessagingService : FirebaseMessagingService() {
                 }
                 else -> {
                     if (NotificationVisibilityStore.shouldSuppressOrdinaryNotifications()) return@launch
-                    TerminalNotificationManager.showMessageNotification(applicationContext, chatId)
+                    val controlsEnabled = AppPreferences(applicationContext).callNotificationControls.first()
+                    val notificationBody = if (controlsEnabled) {
+                        resolveVisibleNotificationBody(chatId, message.data["messageId"])
+                    } else {
+                        null
+                    }
+                    TerminalNotificationManager.showMessageNotification(
+                        context = applicationContext,
+                        chatId = chatId,
+                        notificationBody = notificationBody,
+                    )
                     processDeliveryReceipt(chatId, message.data["messageId"])
                     Log.d(TAG, "Updated grouped notification for chat=$chatId")
                 }
@@ -102,6 +112,24 @@ class CodeShellMessagingService : FirebaseMessagingService() {
                     messageRepository = messageRepository,
                 )
             }
+    }
+
+    private suspend fun resolveVisibleNotificationBody(chatId: String, messageId: String?): String? {
+        if (messageId.isNullOrBlank()) return null
+        val message = messageRepository.getRecentMessages(chatId, pageSize = 5)
+            .getOrNull()
+            ?.firstOrNull { it.id == messageId }
+            ?: return null
+        val senderId = userRepository.getUsername(message.senderId).getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: message.senderId
+        val body = when (message.type) {
+            com.codeshell.app.data.model.MessageType.TEXT -> message.content.takeIf { it.isNotBlank() }
+            com.codeshell.app.data.model.MessageType.IMAGE -> "Image"
+            com.codeshell.app.data.model.MessageType.VIDEO -> "Video"
+            else -> "File"
+        } ?: return null
+        return "$senderId: $body"
     }
 
     companion object {

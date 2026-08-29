@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class HomeViewModel(
@@ -80,6 +81,8 @@ class HomeViewModel(
     private var hiddenChatIds: Set<String> = emptySet()
     private var homeSessionStarted = false
     private var failedAccessCodeAttempts = 0
+    private var accessCodeEnabled = false
+    private var vaultSendBypassActive = false
     private val presenceJobs = mutableMapOf<String, Job>()
     private val presenceCache = mutableMapOf<String, PresenceState>()
     private var presenceExpiryJob: Job? = null
@@ -103,13 +106,16 @@ class HomeViewModel(
             viewModelScope.launch {
                 var accessCodeWasEnabled = false
                 appPreferences.chatAccessCodeEnabled.collect { enabled ->
-                    if (enabled && !accessCodeWasEnabled) {
+                    accessCodeEnabled = enabled
+                    if (enabled && !accessCodeWasEnabled && !vaultSendBypassActive) {
                         _uiState.update {
                             it.copy(isAccessUnlocked = false, isAccessLocked = true)
                         }
                     } else {
                         _uiState.update { state ->
-                            state.copy(isAccessLocked = enabled && !state.isAccessUnlocked)
+                            state.copy(
+                                isAccessLocked = enabled && !state.isAccessUnlocked && !vaultSendBypassActive,
+                            )
                         }
                     }
                     accessCodeWasEnabled = enabled
@@ -662,11 +668,34 @@ class HomeViewModel(
     }
 
     fun enterSelectionMode() {
-        _uiState.update { it.copy(selectionMode = true, selectedChatIds = emptySet()) }
+        _uiState.update {
+            it.copy(
+                selectionMode = true,
+                selectedChatIds = emptySet(),
+                pendingVaultSend = false,
+                pendingSharedSend = false,
+            )
+        }
+    }
+
+    fun loadChatsBypassingAccessCode() {
+        vaultSendBypassActive = true
+        currentUserId?.let(::startHomeSession)
     }
 
     fun enterSelectionModeForVaultSend() {
-        _uiState.update { it.copy(selectionMode = true, selectedChatIds = emptySet(), pendingVaultSend = true) }
+        vaultSendBypassActive = true
+        currentUserId?.let(::startHomeSession)
+        _uiState.update {
+            it.copy(
+                selectionMode = true,
+                selectedChatIds = emptySet(),
+                pendingVaultSend = true,
+                vaultSendBypassActive = true,
+                isAccessUnlocked = true,
+                isAccessLocked = false,
+            )
+        }
     }
 
     fun clearVaultSendFlag() {
@@ -682,7 +711,19 @@ class HomeViewModel(
     }
 
     fun cancelSelection() {
-        _uiState.update { it.copy(selectionMode = false, selectedChatIds = emptySet()) }
+        val shouldRelock = vaultSendBypassActive
+        vaultSendBypassActive = false
+        _uiState.update {
+            it.copy(
+                selectionMode = false,
+                selectedChatIds = emptySet(),
+                pendingVaultSend = false,
+                pendingSharedSend = false,
+                vaultSendBypassActive = false,
+                isAccessUnlocked = if (shouldRelock && accessCodeEnabled) false else it.isAccessUnlocked,
+                isAccessLocked = if (shouldRelock) accessCodeEnabled else it.isAccessLocked,
+            )
+        }
     }
 
     fun toggleChatSelection(chatId: String) {
@@ -694,22 +735,39 @@ class HomeViewModel(
         }
     }
 
-    fun sendSharedContentToChats(content: SharedContent, chatIds: Set<String>) {
-        val senderId = currentUserId ?: return
+    fun sendSharedContentToChats(content: SharedContent, chatIds: Set<String>, onComplete: (Boolean) -> Unit = {}) {
+        val senderId = currentUserId ?: run {
+            onComplete(false)
+            return
+        }
         val targets = chatIds.filterNot(::isProtectedBotChatId)
-        if (targets.isEmpty()) return
+        if (targets.isEmpty()) {
+            onComplete(false)
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val resolver = getApplication<Application>().contentResolver
+            var allSucceeded = true
             targets.forEach { chatId ->
-                val recipientId = rawChats.firstOrNull { it.chatId == chatId }?.otherUserId ?: return@forEach
+                val recipientId = rawChats.firstOrNull { it.chatId == chatId }?.otherUserId
+                if (recipientId == null) {
+                    allSucceeded = false
+                    return@forEach
+                }
                 content.text?.takeIf { it.isNotBlank() }?.let { text ->
-                    messageRepository.sendTextMessage(chatId, senderId, recipientId, text)
+                    if (messageRepository.sendTextMessage(chatId, senderId, recipientId, text).isFailure) {
+                        allSucceeded = false
+                    }
                 }
                 content.videoUris.forEach { uri ->
-                    sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.VIDEO, resolver)
+                    if (!sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.VIDEO, resolver)) {
+                        allSucceeded = false
+                    }
                 }
                 content.imageUris.forEach { uri ->
-                    sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.IMAGE, resolver)
+                    if (!sendSharedMedia(chatId, senderId, recipientId, uri, MessageType.IMAGE, resolver)) {
+                        allSucceeded = false
+                    }
                 }
                 content.fileUris.forEach { uri ->
                     val mimeType = resolver.getType(uri).orEmpty().lowercase()
@@ -718,9 +776,12 @@ class HomeViewModel(
                         mimeType.startsWith("image/") -> MessageType.IMAGE
                         else -> MessageType.FILE
                     }
-                    sendSharedMedia(chatId, senderId, recipientId, uri, type, resolver)
+                    if (!sendSharedMedia(chatId, senderId, recipientId, uri, type, resolver)) {
+                        allSucceeded = false
+                    }
                 }
             }
+            withContext(Dispatchers.Main) { onComplete(allSucceeded) }
         }
     }
 
@@ -731,7 +792,7 @@ class HomeViewModel(
         sourceUri: Uri,
         type: MessageType,
         resolver: android.content.ContentResolver,
-    ) {
+    ): Boolean {
         val app = getApplication<Application>()
         val localId = UUID.randomUUID().toString()
         val pending = PendingUpload(
@@ -744,7 +805,7 @@ class HomeViewModel(
         BackgroundUploadRegistry.upsert(chatId, pending)
         val preparedUri: Uri
         val preparedSize: Long?
-        try {
+        return try {
             when (type) {
                 MessageType.IMAGE -> {
                     val prepared = ImageUploadProcessor.prepare(app, resolver, sourceUri)
@@ -754,10 +815,7 @@ class HomeViewModel(
                 MessageType.VIDEO -> {
                     val prepared = runCatching {
                         VideoUploadProcessor.prepare(app, resolver, sourceUri)
-                    }.getOrElse {
-                        BackgroundUploadRegistry.remove(localId)
-                        return
-                    }
+                    }.getOrElse { throw it }
                     preparedUri = prepared.uri
                     preparedSize = prepared.fileSize
                 }
@@ -780,7 +838,9 @@ class HomeViewModel(
                     it.copy(stage = UploadStage.UPLOADING, progress = progress)
                 }
             }
-            if (upload.isSuccess) {
+            if (upload.isFailure) {
+                false
+            } else {
                 messageRepository.sendMediaMessage(
                     chatId = chatId,
                     senderId = senderId,
@@ -790,8 +850,10 @@ class HomeViewModel(
                     fileName = pending.fileName,
                     fileSize = preparedSize,
                     messageId = messageId,
-                )
+                ).isSuccess
             }
+        } catch (_: Throwable) {
+            false
         } finally {
             BackgroundUploadRegistry.remove(localId)
         }
@@ -890,6 +952,7 @@ data class HomeUiState(
     val isAccessLocked: Boolean = false,
     val isAccessUnlocked: Boolean = false,
     val accessCodeInput: String = "",
+    val vaultSendBypassActive: Boolean = false,
     val botUserId: String? = null,
     val isPreparingBot: Boolean = false,
     val onlineUserIds: Set<String> = emptySet(),

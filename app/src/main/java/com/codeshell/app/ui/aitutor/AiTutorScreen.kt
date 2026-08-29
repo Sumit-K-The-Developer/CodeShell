@@ -492,50 +492,89 @@ private fun AiTutorMessageBubble(
                 horizontalArrangement = if (isAssistant) Arrangement.Start else Arrangement.End,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                SelectionContainer(
-                    modifier = if (isAssistant) Modifier.weight(1f) else Modifier.fillMaxWidth(0.88f),
-                ) {
-                    Text(
-                        text = renderedText,
+                if (isAssistant) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (borderColor != null) {
-                                    Modifier.border(1.dp, borderColor, RoundedCornerShape(16.dp))
-                                } else {
-                                    Modifier
-                                },
-                            )
+                            .border(1.dp, borderColor ?: AiTutorColors.Divider, RoundedCornerShape(16.dp))
                             .background(background, RoundedCornerShape(16.dp))
                             .padding(horizontal = 14.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
-                    )
-                }
-                if (isAssistant && !message.isTyping && message.content.isNotBlank()) {
-                    IconButton(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(message.content))
-                        },
-                        modifier = Modifier.size(32.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy response",
-                            tint = AiTutorColors.TextSecondary,
-                            modifier = Modifier.size(17.dp),
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = renderedText,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
+                            )
+                        }
+                        if (!message.isTyping && message.content.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(message.content))
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy response",
+                                        tint = AiTutorColors.TextSecondary,
+                                        modifier = Modifier.size(17.dp),
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onRegenerate(message.id) },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Regenerate response",
+                                        tint = AiTutorColors.TextSecondary,
+                                        modifier = Modifier.size(17.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
-                    IconButton(
-                        onClick = { onRegenerate(message.id) },
-                        modifier = Modifier.size(32.dp),
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .background(background, RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Regenerate response",
-                            tint = AiTutorColors.TextSecondary,
-                            modifier = Modifier.size(17.dp),
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = renderedText,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (message.isError) AiTutorColors.ErrorText else AiTutorColors.TextPrimary,
+                            )
+                        }
+                        if (!message.isTyping && message.content.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(message.content))
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy question",
+                                        tint = AiTutorColors.TextSecondary,
+                                        modifier = Modifier.size(17.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

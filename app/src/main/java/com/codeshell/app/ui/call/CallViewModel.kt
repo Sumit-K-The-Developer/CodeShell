@@ -453,6 +453,13 @@ class CallViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(isMuted = muted) }
     }
 
+    fun disconnectForDeviceLock() {
+        if (_uiState.value.phase == CallUiPhase.Hidden ||
+            _uiState.value.phase == CallUiPhase.StatusMessage
+        ) return
+        endActiveCall()
+    }
+
     fun toggleRemoteAudio() {
         val muted = !_uiState.value.isRemoteAudioMuted
         webRtc?.setRemoteAudioEnabled(!muted)

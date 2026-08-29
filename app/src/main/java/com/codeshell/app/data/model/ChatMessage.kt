@@ -43,6 +43,7 @@ data class ChatMessage(
     val reply: MessageReply? = null,
     val hiddenBy: Set<String> = emptySet(),
     val liked: Boolean = false,
+    val isPendingLocal: Boolean = false,
     val callInitiatorId: String? = null,
     val callId: String? = null,
 ) {

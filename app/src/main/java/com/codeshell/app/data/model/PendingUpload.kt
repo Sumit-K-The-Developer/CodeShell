@@ -14,7 +14,10 @@ data class PendingUpload(
     val localUri: Uri,
     val fileName: String? = null,
     val fileSize: Long? = null,
+    val caption: String? = null,
     val stage: UploadStage = UploadStage.PREPARING,
     val progress: Float = 0f,
     val errorMessage: String? = null,
+    val uploadedMessageId: String? = null,
+    val uploadedUrl: String? = null,
 )

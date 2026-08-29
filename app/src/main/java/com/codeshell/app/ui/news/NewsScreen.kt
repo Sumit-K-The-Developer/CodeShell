@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.ImageLoader
 import coil.request.ImageRequest
@@ -98,9 +102,19 @@ fun NewsScreen(
         NewsAiConversationRepository(appContext)
     }
     var cachedArticleKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var cacheRefreshTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(uiState.articles) {
+    LaunchedEffect(uiState.articles, cacheRefreshTick) {
         cachedArticleKeys = conversationRepository.cachedArticleKeys()
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) cacheRefreshTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(Unit) {
@@ -270,7 +284,6 @@ fun NewsScreen(
                                 onFullArticleClick = { onArticleClick(article) },
                                 onAskAi = onAskAi?.let { callback ->
                                     {
-                                        cachedArticleKeys = cachedArticleKeys + newsAiConversationKey(article)
                                         callback(article)
                                     }
                                 },

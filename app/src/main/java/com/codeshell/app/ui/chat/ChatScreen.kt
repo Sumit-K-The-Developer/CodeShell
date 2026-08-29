@@ -7,11 +7,16 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -44,6 +49,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,7 +60,10 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
@@ -70,6 +81,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -97,6 +109,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -115,9 +128,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import androidx.core.content.FileProvider
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -135,6 +151,7 @@ import com.codeshell.app.data.model.CallType
 import com.codeshell.app.data.preferences.AppPreferences
 import com.codeshell.app.data.model.ChatMessage
 import com.codeshell.app.data.model.MessageType
+import com.codeshell.app.data.model.VaultItem
 import com.codeshell.app.data.model.sessionLogAlignAsMine
 import com.codeshell.app.data.model.PendingUpload
 import com.codeshell.app.ui.components.CodeShellDialog
@@ -151,6 +168,7 @@ import com.codeshell.app.ui.disguise.LearningWebView
 import com.codeshell.app.ui.util.AdaptiveWidthContainer
 import com.codeshell.app.ui.util.DeviceCaptureState
 import com.codeshell.app.ui.util.TerminalInactivityEffect
+import com.codeshell.app.ui.vault.PendingChatVaultPick
 import com.codeshell.app.ui.vault.VaultViewModel
 import com.codeshell.app.ui.components.MediaCropDialog
 import com.codeshell.app.util.MediaImageLoader
@@ -160,6 +178,7 @@ import com.codeshell.app.util.findActivity
 import android.app.Application
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.Manifest
 import android.content.Context
@@ -176,7 +195,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import java.io.File
 import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private class PendingPermissionHolder {
     var action: (() -> Unit)? = null
@@ -199,6 +222,7 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     onNavigateToLearning: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenVaultPicker: () -> Unit,
     onOpenVault: () -> Unit,
     onOpenMedia: (type: String, url: String, fileName: String?, messageId: String) -> Unit,
     pauseInactivity: Boolean = false,
@@ -208,6 +232,7 @@ fun ChatScreen(
     val viewModel: ChatViewModel = viewModel(key = chatId) { ChatViewModel(app, chatId) }
     val vaultViewModel: VaultViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val vaultUiState by vaultViewModel.uiState.collectAsStateWithLifecycle()
     val composeView = LocalView.current
     val activity = context.findActivity() as MainActivity
     val callViewModel: CallViewModel = viewModel(viewModelStoreOwner = activity) { CallViewModel(app) }
@@ -250,6 +275,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -342,6 +368,7 @@ fun ChatScreen(
                     val snackbarResult = snackbarHostState.showSnackbar(
                         message = if (result.isSuccess) "Saved to Vault" else "Could not save screenshot to Vault",
                         actionLabel = if (result.isSuccess) context.getString(R.string.view) else null,
+                        duration = SnackbarDuration.Short,
                     )
                     if (result.isSuccess && snackbarResult == SnackbarResult.ActionPerformed) {
                         onOpenVault()
@@ -376,6 +403,35 @@ fun ChatScreen(
         // Vault-send items and externally shared content arrive as drafts
         // (pending attachments / pre-filled input), never auto-sent.
         viewModel.consumeIncomingDrafts()
+    }
+
+    LaunchedEffect(chatId) {
+        // IDs picked via the Settings-opened chat vault picker arrive here when
+        // the user navigates back. Resolve each to its VaultItem and add it as
+        // a pending media draft (never auto-sent).
+        val pendingIds = PendingChatVaultPick.consumeAll()
+        if (pendingIds.isEmpty()) return@LaunchedEffect
+        vaultViewModel.loadItems()
+        // Wait until the vault list finishes loading so the picked IDs can be
+        // resolved to VaultItems before turning them into media drafts.
+        val loadedItems = vaultViewModel.uiState
+            .filter { !it.isLoading && (it.items.isNotEmpty() || it.loadError != null) }
+            .first()
+            .items
+        pendingIds.forEach { id ->
+            val item = loadedItems.firstOrNull { it.id == id } ?: return@forEach
+            val file = vaultViewModel.getVaultFile(item)
+            if (file == null) {
+                snackbarHostState.showSnackbar("Could not open ${item.fileName}")
+                return@forEach
+            }
+            val type = when {
+                item.isVideo -> MessageType.VIDEO
+                item.isImage -> MessageType.IMAGE
+                else -> MessageType.FILE
+            }
+            viewModel.addDraftMedia(Uri.fromFile(file), type, item.fileName, item.fileSize)
+        }
     }
 
     val isCallActive = callUiState.phase != CallUiPhase.Hidden && callUiState.phase != CallUiPhase.StatusMessage
@@ -416,10 +472,18 @@ fun ChatScreen(
     }
 
     LaunchedEffect(isCallActive) {
-        activity.suppressTerminateOnLock = isCallActive
+        activity.isCallActiveForPrivacy = isCallActive
+        activity.activeCallStateProvider = {
+            val phase = callViewModel.uiState.value.phase
+            phase != CallUiPhase.Hidden && phase != CallUiPhase.StatusMessage
+        }
+        activity.activeCallDeviceLockHandler = if (isCallActive) {
+            { callViewModel.disconnectForDeviceLock() }
+        } else null
+        activity.suppressTerminateOnLock = isCallActive && !activity.disconnectOnDeviceLockForPrivacy
         // A live call must keep its ViewModel and WebRTC engine alive when the
         // user presses Home, even when the disguise normally hides the app.
-        activity.applySuppressHideOnHome(isCallActive)
+        activity.applySuppressHideOnHome(isCallActive && !activity.disconnectOnDeviceLockForPrivacy)
     }
 
     LaunchedEffect(callUiState.phase, callUiState.callType) {
@@ -1208,9 +1272,9 @@ fun ChatScreen(
                             onDismissMenu = { showMenu = false },
                             onVoiceConnect = { startVoiceCall() },
                             onLiveConnect = { startVideoCall() },
-                            onClearTerminal = { showClearDialog = true },
-                            onBlockUser = { showBlockDialog = true },
-                            onOpenSettings = onOpenSettings,
+                             onClearTerminal = { showClearDialog = true },
+                             onBlockUser = { showBlockDialog = true },
+                             onOpenSettings = onOpenSettings,
                         )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -1539,6 +1603,7 @@ fun ChatScreen(
                     setSuppressHideOnHome(true)
                     filePicker.launch(arrayOf("*/*"))
                 },
+                onPickVault = onOpenVaultPicker,
                 onEditDraft = { draft ->
                     if (draft.type == MessageType.IMAGE) {
                         draftToCrop = draft
@@ -1868,18 +1933,12 @@ private fun MessageBubble(
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
 ) {
     val colors = theme.colors
-    val showLike = liked
-    val likeScale by animateFloatAsState(
-        targetValue = if (showLike) 0.8f else 0.44f,
-        animationSpec = tween(260),
-        label = "messageLikeScale",
-    )
-    val likeAlpha by animateFloatAsState(
-        targetValue = if (showLike) 1f else 0f,
-        animationSpec = tween(260),
-        label = "messageLikeAlpha",
-    )
     val bubbleColor = if (isMine) colors.bubbleMine else colors.bubbleOther
+    val likeBadgeColor = androidx.compose.ui.graphics.lerp(
+        start = bubbleColor,
+        stop = Color.Black,
+        fraction = 0.28f,
+    ).copy(alpha = 0.96f)
     val alignment = if (isMine) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (theme.useAsymmetricBubbleTail) {
         RoundedCornerShape(
@@ -1922,6 +1981,7 @@ private fun MessageBubble(
     val isVisualMediaMessage = !message.deleted &&
         (message.type == MessageType.IMAGE || message.type == MessageType.VIDEO) &&
         message.mediaUrl != null
+    val hasLinkText = message.type == MessageType.TEXT && containsWebLink(message.displayText)
     val contentPadding = if (isVisualMediaMessage) {
         Modifier.padding(horizontal = 0.dp, vertical = 0.dp)
     } else {
@@ -1942,6 +2002,35 @@ private fun MessageBubble(
         animationSpec = tween(durationMillis = 200),
         label = "bubbleSwipe",
     )
+    val likePulseScale = remember(message.id) { Animatable(1f) }
+    val likePulseAlpha = remember(message.id) { Animatable(1f) }
+    val likeAnimationScope = rememberCoroutineScope()
+    val onAnimatedDoubleTap: () -> Unit = {
+        onDoubleTap()
+        likeAnimationScope.launch {
+            likePulseScale.stop()
+            likePulseAlpha.stop()
+            likePulseScale.snapTo(0.94f)
+            likePulseAlpha.snapTo(0.72f)
+            coroutineScope {
+                launch {
+                    likePulseScale.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        ),
+                    )
+                }
+                launch {
+                    likePulseAlpha.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 220),
+                    )
+                }
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -1957,15 +2046,15 @@ private fun MessageBubble(
                 modifier = Modifier
                     .wrapContentWidth(align = if (isMine) Alignment.End else Alignment.Start)
                     .graphicsLayer {
-                        scaleX = bubbleScale
-                        scaleY = bubbleScale
-                        alpha = bubbleAlpha
+                        scaleX = bubbleScale * likePulseScale.value
+                        scaleY = bubbleScale * likePulseScale.value
+                        alpha = bubbleAlpha * likePulseAlpha.value
                     }
                     .offset { IntOffset(animatedOffset.roundToInt(), 0) }
                     .border(selectionBorderWidth, selectionBorderColor, shape)
                     .background(bubbleColor, shape)
                     .then(
-                        if (!selectionMode && !message.deleted) {
+                        if (!selectionMode && !message.deleted && !hasLinkText) {
                             Modifier.pointerInput(message.id) {
                                 var dragDistance = 0f
                                 detectHorizontalDragGestures(
@@ -1997,12 +2086,12 @@ private fun MessageBubble(
                     .then(
                         if (selectionMode && !message.deleted) {
                             Modifier.clickable { onToggleSelection() }
-                        } else if (!message.deleted) {
+                        } else if (!message.deleted && !hasLinkText) {
                             Modifier.pointerInput(message.id) {
                                 detectTapGestures(
                                     onTap = { onTap() },
                                     onLongPress = { onLongPress() },
-                                    onDoubleTap = { onDoubleTap() },
+                                    onDoubleTap = { onAnimatedDoubleTap() },
                                 )
                             }
                         } else {
@@ -2031,7 +2120,8 @@ private fun MessageBubble(
                         theme = theme,
                         onOpenMedia = onOpenMedia,
                         mediaClickEnabled = !selectionMode,
-                        onDoubleTap = onDoubleTap,
+                        onTap = onTap,
+                        onDoubleTap = onAnimatedDoubleTap,
                         onLongPress = if (!selectionMode) onLongPress else null,
                         onOpenLink = onOpenLink,
                     )
@@ -2075,23 +2165,37 @@ private fun MessageBubble(
                 }
             }
             }
-            if (showLike) {
-                Text(
-                    text = "♥",
-                    color = Color(0xFFB84A58).copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.titleMedium,
+            AnimatedVisibility(
+                visible = liked,
+                modifier = Modifier
+                    .align(if (isMine) Alignment.CenterStart else Alignment.CenterEnd)
+                    .offset(x = if (isMine) (-18).dp else 18.dp),
+                enter = fadeIn(animationSpec = tween(durationMillis = 90)) +
+                    scaleIn(
+                        initialScale = 0.3f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    ),
+                exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
+                    scaleOut(
+                        targetScale = 0.55f,
+                        animationSpec = tween(durationMillis = 140),
+                    ),
+            ) {
+                Box(
                     modifier = Modifier
-                        .align(if (isMine) Alignment.TopStart else Alignment.TopEnd)
-                        .offset(
-                            x = if (isMine) (-5).dp else 5.dp,
-                            y = (-7).dp,
-                        )
-                        .graphicsLayer {
-                            scaleX = likeScale
-                            scaleY = likeScale
-                            alpha = likeAlpha
-                        },
-                )
+                        .size(24.dp)
+                        .background(likeBadgeColor, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "♥",
+                        color = Color(0xFFFF6B7A),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
             }
         }
     }
@@ -2101,6 +2205,7 @@ private fun MessageBubble(
 private fun MessageReceipt(message: ChatMessage, theme: ChatTheme) {
     val colors = theme.colors
     val (label, color) = when {
+        message.isPendingLocal -> "•" to colors.mutedText
         message.read -> "✓✓" to OnlineGreen
         message.delivered -> "✓✓" to colors.mutedText
         else -> "✓" to colors.text.copy(alpha = 0.8f)

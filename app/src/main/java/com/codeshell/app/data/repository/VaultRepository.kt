@@ -21,6 +21,10 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
+
+private val vaultMetadataLock = Any()
 
 class VaultRepository(private val context: Context) {
 
@@ -34,8 +38,6 @@ class VaultRepository(private val context: Context) {
         get() = File(vaultDir, "vault_metadata.json")
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val metadataLock = Any()
-
     suspend fun saveFromUrl(url: String, fileName: String, mimeType: String, sourceChatId: String? = null, sourceMessageId: String? = null): Result<VaultItem> =
         saveFromUrlWithProgress(url, fileName, mimeType, sourceChatId, sourceMessageId) { _, _ -> }
 
@@ -478,7 +480,7 @@ class VaultRepository(private val context: Context) {
 
     suspend fun getAllItemsResult(): Result<List<VaultItem>> = withContext(Dispatchers.IO) {
         try {
-            synchronized(metadataLock) {
+            synchronized(vaultMetadataLock) {
                 if (!metadataFile.exists()) return@withContext Result.success(emptyList())
                 val text = metadataFile.readText()
                 Result.success(json.decodeFromString<List<VaultItem>>(text).sortedByDescending { it.dateSaved })
@@ -486,6 +488,107 @@ class VaultRepository(private val context: Context) {
         } catch (e: Throwable) {
             Result.failure(Exception("Could not read Vault data: ${e.message ?: "metadata is invalid"}", e))
         }
+    }
+
+    suspend fun extractZip(
+        item: VaultItem,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): Result<List<VaultItem>> = withContext(Dispatchers.IO) {
+        val zipFile = findEncryptedFile(item)
+            ?: return@withContext Result.failure(Exception("File not found"))
+        val extractedFiles = mutableListOf<File>()
+        val extractedItems = mutableListOf<VaultItem>()
+        val usedNames = mutableSetOf<String>()
+
+        try {
+            val totalEntries = ZipFile(zipFile).use { archive ->
+                archive.entries().asSequence().count { entry ->
+                    !entry.isDirectory && safeZipEntryName(entry.name) != null
+                }
+            }
+            onProgress(0, totalEntries)
+            ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val entryName = safeZipEntryName(entry.name)
+                    if (entry.isDirectory || entryName == null) {
+                        zip.closeEntry()
+                        continue
+                    }
+                    val safeEntryName = requireNotNull(entryName)
+
+                    var fileName = safeEntryName
+                    var suffix = 2
+                    while (!usedNames.add(fileName)) {
+                        val dot = safeEntryName.lastIndexOf('.')
+                        fileName = if (dot > 0) {
+                            safeEntryName.substring(0, dot) + "_" + suffix++ + safeEntryName.substring(dot)
+                        } else {
+                            "${safeEntryName}_${suffix++}"
+                        }
+                    }
+
+                    val id = UUID.randomUUID().toString()
+                    val safeName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    val extension = if (safeName.contains('.')) {
+                        ".${safeName.substringAfterLast('.')}"
+                    } else {
+                        ""
+                    }
+                    if (extension.length > 20) {
+                        throw Exception("File extension too long: $safeName")
+                    }
+                    val output = File(vaultDir, "$id$extension")
+                    output.outputStream().use { stream -> zip.copyTo(stream) }
+                    extractedFiles += output
+
+                    val mimeType = mimeTypeForFileName(safeName)
+                    val thumbnail = File(thumbnailsDir, "$id.jpg")
+                    runCatching { generateThumbnailStreaming(output, mimeType, thumbnail) }
+                    extractedItems += VaultItem(
+                        id = id,
+                        fileName = safeName,
+                        mimeType = mimeType,
+                        dateSaved = System.currentTimeMillis(),
+                        fileSize = output.length(),
+                    )
+                    onProgress(extractedItems.size, totalEntries)
+                    zip.closeEntry()
+                }
+            }
+
+            synchronized(vaultMetadataLock) {
+                val items = readMetadataItems()
+                    .filterNot { it.id == item.id }
+                    .toMutableList()
+                items.addAll(extractedItems)
+                writeMetadataItems(items)
+            }
+
+            if (!zipFile.delete()) {
+                throw Exception("Could not delete ZIP file")
+            }
+            File(thumbnailsDir, "${item.id}.jpg").delete()
+            Result.success(extractedItems)
+        } catch (error: Throwable) {
+            extractedFiles.forEach { runCatching { it.delete() } }
+            extractedItems.forEach { extracted ->
+                runCatching { File(thumbnailsDir, "${extracted.id}.jpg").delete() }
+            }
+            Result.failure(
+                if (error.message?.contains("encrypted", ignoreCase = true) == true) {
+                    Exception("Encrypted ZIPs are not supported")
+                } else {
+                    error
+                },
+            )
+        }
+    }
+
+    private fun safeZipEntryName(name: String): String? {
+        val normalized = name.replace('\\', '/')
+        if (normalized.startsWith('/') || normalized.split('/').any { it == ".." }) return null
+        return normalized.substringAfterLast('/').trim().takeIf { it.isNotEmpty() }
     }
 
     suspend fun getAllItems(): List<VaultItem> =
@@ -588,12 +691,20 @@ fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
         vaultDir.listFiles()?.firstOrNull { it.name.startsWith(id) }
 
     suspend fun replaceImage(item: VaultItem, sourceUri: Uri): Result<VaultItem> =
+        replaceItem(item, sourceUri, item.fileName, item.mimeType)
+
+    suspend fun replaceItem(
+        item: VaultItem,
+        sourceUri: Uri,
+        fileName: String,
+        mimeType: String,
+    ): Result<VaultItem> =
         withContext(Dispatchers.IO) {
             try {
                 val target = findEncryptedFile(item)
                     ?: return@withContext Result.failure(Exception("File not found"))
                 val source = context.contentResolver.openInputStream(sourceUri)
-                    ?: return@withContext Result.failure(Exception("Could not read edited image"))
+                    ?: return@withContext Result.failure(Exception("Could not read replacement file"))
                 val temporary = File(vaultDir, ".${item.id}_edited.tmp")
                 source.use { input -> temporary.outputStream().use { output -> input.copyTo(output) } }
                 try {
@@ -621,8 +732,11 @@ fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
                 }
 
                 val thumbnail = File(thumbnailsDir, "${item.id}.jpg")
-                runCatching { generateThumbnailStreaming(target, item.mimeType, thumbnail) }
+                thumbnail.delete()
+                runCatching { generateThumbnailStreaming(target, mimeType, thumbnail) }
                 val updated = item.copy(
+                    fileName = fileName,
+                    mimeType = mimeType,
                     fileSize = target.length(),
                     contentVersion = System.currentTimeMillis(),
                 )
@@ -633,38 +747,46 @@ fun getVaultFile(item: VaultItem): File? = findEncryptedFile(item)
             }
         }
 
-    private fun appendToMetadata(item: VaultItem) = synchronized(metadataLock) {
-        val items = try {
-            if (metadataFile.exists()) {
-                json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
-            } else mutableListOf()
-        } catch (e: Throwable) {
-            mutableListOf()
-        }
+    private fun appendToMetadata(item: VaultItem) = synchronized(vaultMetadataLock) {
+        val items = readMetadataItems()
         items.add(item)
-        metadataFile.writeText(json.encodeToString(items))
+        writeMetadataItems(items)
     }
 
-    private fun removeFromMetadata(id: String) = synchronized(metadataLock) {
-        val items = try {
-            if (metadataFile.exists()) {
-                json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
-            } else mutableListOf()
-        } catch (e: Throwable) {
-            mutableListOf()
-        }
+    private fun removeFromMetadata(id: String) = synchronized(vaultMetadataLock) {
+        val items = readMetadataItems()
         items.removeAll { it.id == id }
-        metadataFile.writeText(json.encodeToString(items))
+        writeMetadataItems(items)
     }
 
-    private fun replaceInMetadata(updated: VaultItem) = synchronized(metadataLock) {
-        val items = if (metadataFile.exists()) {
-            json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
-        } else {
-            mutableListOf()
-        }
+    private fun replaceInMetadata(updated: VaultItem) = synchronized(vaultMetadataLock) {
+        val items = readMetadataItems()
         val index = items.indexOfFirst { it.id == updated.id }
         if (index >= 0) items[index] = updated
-        metadataFile.writeText(json.encodeToString(items))
+        writeMetadataItems(items)
+    }
+
+    private fun readMetadataItems(): MutableList<VaultItem> {
+        if (!metadataFile.exists()) return mutableListOf()
+        return json.decodeFromString<List<VaultItem>>(metadataFile.readText()).toMutableList()
+    }
+
+    private fun writeMetadataItems(items: List<VaultItem>) {
+        val temporary = File(vaultDir, ".vault_metadata.json.tmp")
+        temporary.writeText(json.encodeToString(items))
+        try {
+            Files.move(
+                temporary.toPath(),
+                metadataFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temporary.toPath(),
+                metadataFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
     }
 }

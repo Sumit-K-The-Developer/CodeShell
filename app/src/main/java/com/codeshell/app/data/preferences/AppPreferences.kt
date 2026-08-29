@@ -31,6 +31,14 @@ class AppPreferences(private val context: Context) {
         prefs[TERMINATE_ON_LOCK] ?: true
     }
 
+    val disconnectOnDeviceLock: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[DISCONNECT_ON_DEVICE_LOCK] ?: true
+    }
+
+    val vaultGridColumns: Flow<Int> = context.dataStore.data.map { prefs ->
+        if ((prefs[VAULT_GRID_COLUMNS] ?: 3) == 4) 4 else 3
+    }
+
     val closeChatOnInactivity: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[CLOSE_CHAT_ON_INACTIVITY] ?: false
     }
@@ -104,6 +112,18 @@ class AppPreferences(private val context: Context) {
     suspend fun setTerminateOnLock(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[TERMINATE_ON_LOCK] = enabled
+        }
+    }
+
+    suspend fun setDisconnectOnDeviceLock(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[DISCONNECT_ON_DEVICE_LOCK] = enabled
+        }
+    }
+
+    suspend fun setVaultGridColumns(columns: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[VAULT_GRID_COLUMNS] = if (columns == 4) 4 else 3
         }
     }
 
@@ -386,6 +406,8 @@ class AppPreferences(private val context: Context) {
 
         private val HIDE_ON_HOME_PRESS = booleanPreferencesKey("hide_on_home_press")
         private val TERMINATE_ON_LOCK = booleanPreferencesKey("terminate_on_lock")
+        private val DISCONNECT_ON_DEVICE_LOCK = booleanPreferencesKey("disconnect_on_device_lock")
+        private val VAULT_GRID_COLUMNS = intPreferencesKey("vault_grid_columns")
         private val CLOSE_CHAT_ON_INACTIVITY = booleanPreferencesKey("close_chat_on_inactivity")
         private val CHAT_INACTIVITY_TIMEOUT_SECONDS = intPreferencesKey("chat_inactivity_timeout_seconds")
         private val NEW_TERMINAL_ALERT = booleanPreferencesKey("new_terminal_alert")

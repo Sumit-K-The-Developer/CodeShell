@@ -43,7 +43,7 @@ object TerminalNotificationManager {
     private const val CHANNEL_ID = "terminal_alerts_v2"
     private const val COUNT_PREFIX = "count_"
 
-    fun showMessageNotification(context: Context, chatId: String) {
+    fun showMessageNotification(context: Context, chatId: String, notificationBody: String? = null) {
         if (LocalActiveChatStore.isViewingChat(chatId)) return
 
         val appContext = context.applicationContext
@@ -54,7 +54,7 @@ object TerminalNotificationManager {
             context = appContext,
             chatId = chatId,
             isCall = false,
-            body = flavored.body,
+            body = notificationBody ?: flavored.body,
             newsArticleUrl = flavored.articleUrl,
             newsCategoryId = flavored.categoryId,
             newsRegionCc = flavored.regionCc,

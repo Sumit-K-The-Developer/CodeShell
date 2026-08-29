@@ -15,7 +15,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -28,6 +30,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +51,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -64,6 +68,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,6 +84,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -152,6 +158,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -212,6 +220,7 @@ fun VaultScreen(
     val selectedChatStyle by appPreferences.chatInterfaceStyle.collectAsStateWithLifecycle(
         initialValue = ChatInterfaceStyle.DEFAULT,
     )
+    val vaultGridColumns by appPreferences.vaultGridColumns.collectAsStateWithLifecycle(initialValue = 3)
     val vaultTheme = rememberAdaptiveChatTheme(
         if (selectedChatStyle == ChatInterfaceStyle.IDE_LIGHT) ChatInterfaceStyle.IDE_LIGHT else ChatInterfaceStyle.DEFAULT
     )
@@ -231,8 +240,10 @@ fun VaultScreen(
     }
 
     var showSelectionMenu by remember { mutableStateOf(false) }
+    var showGridMenu by remember { mutableStateOf(false) }
     var showSendConfirmationDialog by remember { mutableStateOf(false) }
     var pendingSendItem by remember { mutableStateOf<VaultItem?>(null) }
+    var pendingExtractZipItem by remember { mutableStateOf<VaultItem?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<VaultItem?>(null) }
     var showDeleteSelectionConfirmation by remember { mutableStateOf(false) }
     var pendingMoveItem by remember { mutableStateOf<VaultItem?>(null) }
@@ -244,6 +255,7 @@ fun VaultScreen(
     var pendingProfilePhotoUri by remember { mutableStateOf<Uri?>(null) }
     var wallpaperTargetItem by remember { mutableStateOf<VaultItem?>(null) }
     var activityGeneration by remember { mutableIntStateOf(0) }
+    var vaultViewerVideoPlaying by remember { mutableStateOf(false) }
 
     val touchActivityModifier = Modifier.pointerInput(Unit) {
         awaitPointerEventScope {
@@ -262,6 +274,7 @@ fun VaultScreen(
         uiState.isLoading,
         uiState.isSaving,
         uiState.isExporting,
+        enabled = !vaultViewerVideoPlaying,
     )
 
     // Use PickMultipleVisualMedia so the system photo/video gallery opens
@@ -284,9 +297,9 @@ fun VaultScreen(
                     // Some providers don't support persistable permission
                 }
             }
-            viewModel.saveToVaultFromUris(uris, deleteSource = false) {
+            viewModel.saveToVaultFromUris(uris, deleteSource = false) { summary ->
                 scope.launch {
-                    snackbarHostState.showSnackbar("Added ${uris.size} item(s) to Vault")
+                    snackbarHostState.showSnackbar(vaultImportSummaryMessage(summary))
                 }
             }
         }
@@ -336,7 +349,7 @@ fun VaultScreen(
     }
 
     fun performDelete(item: VaultItem) {
-        viewModel.deleteItemWithUndo(item)
+        val deletionToken = viewModel.deleteItemWithUndo(item)
         scope.launch {
             val dismissJob = launch {
                 delay(5_000L)
@@ -348,14 +361,14 @@ fun VaultScreen(
             )
             dismissJob.cancel()
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.undoPendingDelete()
+                viewModel.undoPendingDelete(deletionToken)
             }
         }
     }
 
     fun performDeleteSelection() {
         val count = uiState.selectedItems.size
-        viewModel.deleteSelectedItems()
+        val deletionToken = viewModel.deleteSelectedItems()
         scope.launch {
             val dismissJob = launch {
                 delay(5_000L)
@@ -371,9 +384,16 @@ fun VaultScreen(
             )
             dismissJob.cancel()
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.undoPendingDelete()
+                viewModel.undoPendingDelete(deletionToken)
             }
         }
+    }
+
+    fun sendSelectedItemsToChat() {
+        val selectedIds = uiState.selectedItems.toList()
+        if (selectedIds.isEmpty()) return
+        PendingVaultSend.setAll(selectedIds)
+        onNavigateToHomeForVaultSend?.invoke()
     }
 
     Scaffold(
@@ -412,6 +432,44 @@ fun VaultScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = { showGridMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.GridView,
+                                contentDescription = stringResource(R.string.vault_view_grid),
+                                tint = EditorDefaultText,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showGridMenu,
+                            onDismissRequest = { showGridMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.vault_view_grid_3)) },
+                                onClick = {
+                                    showGridMenu = false
+                                    scope.launch { appPreferences.setVaultGridColumns(3) }
+                                },
+                                leadingIcon = {
+                                    if (vaultGridColumns == 3) {
+                                        Icon(Icons.Default.Check, contentDescription = null)
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.vault_view_grid_4)) },
+                                onClick = {
+                                    showGridMenu = false
+                                    scope.launch { appPreferences.setVaultGridColumns(4) }
+                                },
+                                leadingIcon = {
+                                    if (vaultGridColumns == 4) {
+                                        Icon(Icons.Default.Check, contentDescription = null)
+                                    }
+                                },
+                            )
+                        }
+                    }
                     if (uiState.selectionMode && uiState.selectedItems.isNotEmpty()) {
                         Box {
                             IconButton(onClick = { showSelectionMenu = true }) {
@@ -429,9 +487,7 @@ fun VaultScreen(
                                     text = { Text(stringResource(R.string.send_to_chat)) },
                                     onClick = {
                                         showSelectionMenu = false
-                                        val selectedIds = uiState.selectedItems.toList()
-                                        PendingVaultSend.setAll(selectedIds)
-                                        onNavigateToHomeForVaultSend?.invoke()
+                                        sendSelectedItemsToChat()
                                     },
                                     enabled = !uiState.isSending
                                 )
@@ -486,24 +542,26 @@ fun VaultScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    // Suppress the hide-on-home secure exit for as long as the
-                    // system gallery is in front, otherwise MainActivity would
-                    // be finished() and crash when the picker returns.
-                    setSuppressHideOnHome(true)
-                    galleryPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+            if (!uiState.selectionMode) {
+                FloatingActionButton(
+                    onClick = {
+                        // Suppress the hide-on-home secure exit for as long as the
+                        // system gallery is in front, otherwise MainActivity would
+                        // be finished() and crash when the picker returns.
+                        setSuppressHideOnHome(true)
+                        galleryPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                        )
+                    },
+                    containerColor = EditorDefaultText.copy(alpha = 0.9f),
+                    contentColor = EditorBackground
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.add_to_vault),
+                        modifier = Modifier.size(24.dp)
                     )
-                },
-                containerColor = EditorDefaultText.copy(alpha = 0.9f),
-                contentColor = EditorBackground
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = stringResource(R.string.add_to_vault),
-                    modifier = Modifier.size(24.dp)
-                )
+                }
             }
         }
     ) { innerPadding ->
@@ -527,6 +585,30 @@ fun VaultScreen(
                     )
                 }
             }
+            uiState.extractionProgress?.let { (completed, total) ->
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.extracting_zip_progress, completed, total),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                    LinearProgressIndicator(
+                        progress = {
+                            if (total > 0) completed.toFloat() / total else 0f
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    )
+                }
+            }
+
+            val gridState = rememberLazyGridState()
 
             when {
                 uiState.isLoading -> {
@@ -596,43 +678,242 @@ fun VaultScreen(
                     }
                 }
 
-                else -> {
+            else -> {
                     val groupedItems = uiState.items.groupBy { vaultDateGroupKey(it.dateSaved) }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        contentPadding = PaddingValues(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    Box(
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        groupedItems.forEach { (_, itemsForDate) ->
-                            item(
-                                key = "date-${vaultDateGroupKey(itemsForDate.first().dateSaved)}",
-                                span = { GridItemSpan(maxLineSpan) },
-                            ) {
-                                Text(
-                                    text = vaultDateGroupLabel(itemsForDate.first().dateSaved),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = EditorDefaultText.copy(alpha = 0.72f),
-                                    modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 6.dp),
-                                )
-                            }
-                            items(itemsForDate, key = { it.id }) { item ->
-                                VaultItemTile(
-                                    item = item,
-                                    viewModel = viewModel,
-                                    selectionMode = uiState.selectionMode,
-                                    selected = item.id in uiState.selectedItems,
-                                    modifier = Modifier.aspectRatio(1f),
-                                    onToggleSelection = { viewModel.toggleItemSelection(item) },
-                                    onLongPress = {
-                                        if (!uiState.selectionMode) {
-                                            viewModel.toggleSelectionMode()
-                                            viewModel.toggleItemSelection(item)
+                        LazyVerticalGrid(
+                            state = gridState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                run {
+                                    var dragSelectionMode: Boolean? = null
+                                    var lastDraggedItemId: String? = null
+
+                                    fun itemAt(position: Offset): VaultItem? {
+                                        val layoutItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                                            position.x >= info.offset.x &&
+                                                position.x < info.offset.x + info.size.width &&
+                                                position.y >= info.offset.y &&
+                                                position.y < info.offset.y + info.size.height
+                                        } ?: return null
+                                        val itemId = layoutItem.key as? String ?: return null
+                                        return uiState.items.firstOrNull { it.id == itemId }
+                                    }
+
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(
+                                            requireUnconsumed = false,
+                                            pass = PointerEventPass.Initial,
+                                        )
+                                        var latestPosition = down.position
+                                        val selectionWasActive = viewModel.uiState.value.selectionMode
+
+                                        if (selectionWasActive) {
+                                            var dragging = false
+                                            var dragSelectionMode: Boolean? = null
+                                            var startDraggedItemId: String? = null
+
+                                            fun itemsInSelectionRect(currentPosition: Offset): List<VaultItem> {
+                                                val startId = startDraggedItemId ?: return emptyList()
+                                                val startInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                                    it.key == startId
+                                                } ?: return emptyList()
+                                                val currentItem = itemAt(currentPosition) ?: return emptyList()
+                                                val currentInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                                    it.key == currentItem.id
+                                                } ?: return emptyList()
+                                                val left = minOf(startInfo.offset.x, currentInfo.offset.x)
+                                                val top = minOf(startInfo.offset.y, currentInfo.offset.y)
+                                                val right = maxOf(
+                                                    startInfo.offset.x + startInfo.size.width,
+                                                    currentInfo.offset.x + currentInfo.size.width,
+                                                )
+                                                val bottom = maxOf(
+                                                    startInfo.offset.y + startInfo.size.height,
+                                                    currentInfo.offset.y + currentInfo.size.height,
+                                                )
+                                                return gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+                                                    val itemId = info.key as? String ?: return@mapNotNull null
+                                                    val item = uiState.items.firstOrNull { it.id == itemId }
+                                                        ?: return@mapNotNull null
+                                                    val intersects =
+                                                        info.offset.x < right &&
+                                                            info.offset.x + info.size.width > left &&
+                                                            info.offset.y < bottom &&
+                                                            info.offset.y + info.size.height > top
+                                                    item.takeIf { intersects }
+                                                }
+                                            }
+
+                                            while (true) {
+                                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                val change = event.changes.firstOrNull { it.id == down.id }
+                                                    ?: break
+                                                if (!change.pressed) break
+                                                latestPosition = change.position
+
+                                                if (!dragging &&
+                                                    (change.position - down.position).getDistance() > 16f
+                                                ) {
+                                                    val startItem = itemAt(down.position)
+                                                        ?: return@awaitEachGesture
+                                                    val currentState = viewModel.uiState.value
+                                                    dragSelectionMode = startItem.id !in currentState.selectedItems
+                                                    startDraggedItemId = startItem.id
+                                                    dragging = true
+                                                }
+
+                                                if (dragging) {
+                                                    viewModel.setItemsSelection(
+                                                        itemsInSelectionRect(latestPosition),
+                                                        dragSelectionMode == true,
+                                                    )
+                                                }
+                                            }
+                                            return@awaitEachGesture
                                         }
-                                    },
-                                )
+
+                                        val longPressPosition: Offset? = try {
+                                            withTimeout<Offset?>(500L) {
+                                                while (true) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                                        ?: return@withTimeout null
+                                                    if (!change.pressed) return@withTimeout null
+                                                    latestPosition = change.position
+                                                    if ((change.position - down.position).getDistance() > 24f) {
+                                                        return@withTimeout null
+                                                    }
+                                                }
+                                                latestPosition
+                                            }
+                                        } catch (_: TimeoutCancellationException) {
+                                            latestPosition
+                                        }
+                                        val startPosition = longPressPosition ?: return@awaitEachGesture
+                                        val startItem = itemAt(startPosition)
+                                            ?: return@awaitEachGesture
+                                        viewModel.startItemSelection(startItem)
+                                        val dragSelectionMode = true
+
+                                        fun itemsInSelectionRect(currentPosition: Offset): List<VaultItem> {
+                                            val startInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                                it.key == startItem.id
+                                            } ?: return emptyList()
+                                            val currentItem = itemAt(currentPosition) ?: return emptyList()
+                                            val currentInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                                it.key == currentItem.id
+                                            } ?: return emptyList()
+                                            val left = minOf(startInfo.offset.x, currentInfo.offset.x)
+                                            val top = minOf(startInfo.offset.y, currentInfo.offset.y)
+                                            val right = maxOf(
+                                                startInfo.offset.x + startInfo.size.width,
+                                                currentInfo.offset.x + currentInfo.size.width,
+                                            )
+                                            val bottom = maxOf(
+                                                startInfo.offset.y + startInfo.size.height,
+                                                currentInfo.offset.y + currentInfo.size.height,
+                                            )
+                                            return gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+                                                val itemId = info.key as? String ?: return@mapNotNull null
+                                                val item = uiState.items.firstOrNull { it.id == itemId }
+                                                    ?: return@mapNotNull null
+                                                val intersects =
+                                                    info.offset.x < right &&
+                                                        info.offset.x + info.size.width > left &&
+                                                        info.offset.y < bottom &&
+                                                        info.offset.y + info.size.height > top
+                                                item.takeIf { intersects }
+                                            }
+                                        }
+
+                                        while (true) {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes.firstOrNull { it.id == down.id }
+                                                ?: break
+                                            if (!change.pressed) break
+                                            viewModel.setItemsSelection(
+                                                itemsInSelectionRect(change.position),
+                                                dragSelectionMode,
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            columns = GridCells.Fixed(vaultGridColumns),
+                            contentPadding = PaddingValues(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            userScrollEnabled = true,
+                        ) {
+                            groupedItems.forEach { (_, itemsForDate) ->
+                                item(
+                                    key = "date-${vaultDateGroupKey(itemsForDate.first().dateSaved)}",
+                                    span = { GridItemSpan(maxLineSpan) },
+                                ) {
+                                    Text(
+                                        text = vaultDateGroupLabel(itemsForDate.first().dateSaved),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = EditorDefaultText.copy(alpha = 0.72f),
+                                        modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 6.dp),
+                                    )
+                                }
+                                items(itemsForDate, key = { it.id }) { item ->
+                                    VaultItemTile(
+                                        item = item,
+                                        viewModel = viewModel,
+                                        selectionMode = uiState.selectionMode,
+                                         selected = item.id in uiState.selectedItems,
+                                         modifier = Modifier.aspectRatio(1f),
+                                         onClick = {
+                                             if (item.isZip) pendingExtractZipItem = item
+                                             else viewModel.selectItem(item)
+                                         },
+                                         onToggleSelection = { viewModel.toggleItemSelection(item) },
+                                        onLongPress = {
+                                            if (!uiState.selectionMode) {
+                                                viewModel.startItemSelection(item)
+                                            }
+                                        },
+                                    )
+                                }
                             }
+                        }
+                    }
+                }
+            }
+
+            if (uiState.selectionMode) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 8.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(
+                            onClick = { showDeleteSelectionConfirmation = true },
+                            enabled = uiState.selectedItems.isNotEmpty() && !uiState.isExporting,
+                        ) {
+                            Text(stringResource(R.string.delete))
+                        }
+                        TextButton(
+                            onClick = ::sendSelectedItemsToChat,
+                            enabled = uiState.selectedItems.isNotEmpty() && !uiState.isSending,
+                        ) {
+                            Text(stringResource(R.string.send))
+                        }
+                        TextButton(onClick = viewModel::clearItemSelection) {
+                            Text(stringResource(R.string.cancel))
                         }
                     }
                 }
@@ -645,9 +926,16 @@ fun VaultScreen(
             item = item,
             items = uiState.items,
             viewModel = viewModel,
-            onSelectItem = viewModel::selectItem,
+            onSelectItem = {
+                vaultViewerVideoPlaying = false
+                viewModel.selectItem(it)
+            },
             onUserActivity = { activityGeneration++ },
-            onDismiss = { viewModel.selectItem(null) },
+            onVideoPlaybackChanged = { vaultViewerVideoPlaying = it },
+            onDismiss = {
+                vaultViewerVideoPlaying = false
+                viewModel.selectItem(null)
+            },
             onDelete = {
                 pendingDeleteItem = item
             },
@@ -676,7 +964,31 @@ fun VaultScreen(
             },
             onSetWallpaper = {
                 scope.launch { snackbarHostState.showSnackbar("Wallpaper setup started") }
+                homeViewModel.loadChatsBypassingAccessCode()
                 wallpaperTargetItem = item
+            },
+        )
+    }
+
+    pendingExtractZipItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingExtractZipItem = null },
+            title = { Text(stringResource(R.string.extract_zip)) },
+            text = { Text(stringResource(R.string.extract_zip_confirm, item.fileName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingExtractZipItem = null
+                        viewModel.extractZip(item)
+                    },
+                ) {
+                    Text(stringResource(R.string.extract_zip))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingExtractZipItem = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }
@@ -763,7 +1075,7 @@ fun VaultScreen(
                     appPreferences.setChatWallpaperVaultId(chat.chatId, item.id)
                     appPreferences.setChatWallpaperSource(chat.chatId, AppPreferences.WALLPAPER_SOURCE_VAULT)
                     appPreferences.setChatWallpaperEnabled(true)
-                    snackbarHostState.showSnackbar("Wallpaper set")
+                    Toast.makeText(context, "Wallpaper set", Toast.LENGTH_SHORT).show()
                 }
             },
             onDismiss = { wallpaperTargetItem = null },
@@ -1005,6 +1317,14 @@ fun VaultScreen(
             viewModel.clearError()
         }
     }
+
+    uiState.pendingDuplicateImports.firstOrNull()?.let { duplicate ->
+        VaultDuplicateImportDialog(
+            duplicate = duplicate,
+            onReplace = { viewModel.resolveDuplicateImport(replace = true) },
+            onSkip = { viewModel.resolveDuplicateImport(replace = false) },
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1015,6 +1335,7 @@ private fun VaultItemTile(
     selectionMode: Boolean,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit,
     onToggleSelection: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -1045,7 +1366,7 @@ private fun VaultItemTile(
                     if (selectionMode) {
                         onToggleSelection()
                     } else {
-                        viewModel.selectItem(item)
+                        onClick()
                     }
                 },
                 onLongClick = {
@@ -1193,6 +1514,7 @@ private fun VaultItemViewerDialog(
     viewModel: VaultViewModel,
     onSelectItem: (VaultItem) -> Unit,
     onUserActivity: () -> Unit,
+    onVideoPlaybackChanged: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onSend: () -> Unit,
@@ -1212,6 +1534,7 @@ private fun VaultItemViewerDialog(
     var slideDirection by remember { mutableIntStateOf(1) }
     var edgeDirection by remember { mutableIntStateOf(0) }
     var edgePulse by remember { mutableIntStateOf(0) }
+    val boundaryNudge = remember { Animatable(0f) }
     val currentIndex = items.indexOfFirst { it.id == item.id }
 
     fun selectAdjacent(offset: Int) {
@@ -1227,8 +1550,15 @@ private fun VaultItemViewerDialog(
 
     LaunchedEffect(edgePulse) {
         if (edgePulse == 0) return@LaunchedEffect
-        delay(700L)
-        edgeDirection = 0
+        boundaryNudge.snapTo(0f)
+        boundaryNudge.animateTo(
+            targetValue = if (edgeDirection > 0) -52f else 52f,
+            animationSpec = tween(durationMillis = 120),
+        )
+        boundaryNudge.animateTo(
+            0f,
+            animationSpec = spring(dampingRatio = 0.65f, stiffness = 520f),
+        )
     }
 
     // Resolve the on-disk vault file once per item. For images we decode a
@@ -1329,7 +1659,9 @@ private fun VaultItemViewerDialog(
                         }
                     },
                     label = "vault_item_transition",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = boundaryNudge.value },
                 ) {
                     when {
                         loading -> {
@@ -1352,6 +1684,7 @@ private fun VaultItemViewerDialog(
                             VaultVideoPlayer(
                                 videoUri = videoFile!!.absolutePath,
                                 onTap = { showChrome = !showChrome },
+                                onPlaybackChanged = onVideoPlaybackChanged,
                             )
                         }
                         !item.isImage && !item.isVideo && filePath != null -> {
@@ -1378,27 +1711,6 @@ private fun VaultItemViewerDialog(
                             }
                         }
                     }
-                }
-            }
-
-            AnimatedVisibility(
-                visible = edgeDirection != 0,
-                modifier = Modifier
-                    .align(if (edgeDirection > 0) Alignment.CenterEnd else Alignment.CenterStart),
-                enter = fadeIn() + slideInHorizontally { if (edgeDirection > 0) it else -it },
-                exit = fadeOut(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.vault_no_more_items),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
                 }
             }
 
@@ -1574,6 +1886,7 @@ private fun VaultItemViewerDialog(
                     }
                 }
             }
+
         }
     }
 }
@@ -1707,6 +2020,7 @@ private fun ZoomableVaultImage(
 private fun VaultVideoPlayer(
     videoUri: String,
     onTap: () -> Unit = {},
+    onPlaybackChanged: (Boolean) -> Unit = {},
 ) {    val context = LocalContext.current
     var showBuffering by remember(videoUri) { mutableStateOf(true) }
 
@@ -1727,8 +2041,13 @@ private fun VaultVideoPlayer(
                 showBuffering = playbackState == Player.STATE_BUFFERING ||
                     playbackState == Player.STATE_IDLE
             }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                onPlaybackChanged(isPlaying)
+            }
         }
         player.addListener(listener)
+        onPlaybackChanged(player.isPlaying)
         showBuffering = player.playbackState == Player.STATE_BUFFERING ||
             player.playbackState == Player.STATE_IDLE
         onDispose {

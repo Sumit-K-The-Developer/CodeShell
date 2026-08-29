@@ -34,9 +34,12 @@ object PendingSharedContent {
 
     @Volatile
     private var content: SharedContent? = null
+    @Volatile
+    private var chatConsumptionAllowed = false
 
     fun set(sharedContent: SharedContent) {
         content = sharedContent
+        chatConsumptionAllowed = false
     }
 
     fun peek(): SharedContent? = content
@@ -44,10 +47,21 @@ object PendingSharedContent {
     fun consume(): SharedContent? {
         val pending = content
         content = null
+        chatConsumptionAllowed = false
         return pending
+    }
+
+    fun allowChatConsumption() {
+        chatConsumptionAllowed = true
+    }
+
+    fun consumeForChat(): SharedContent? {
+        if (!chatConsumptionAllowed) return null
+        return consume()
     }
 
     fun clear() {
         content = null
+        chatConsumptionAllowed = false
     }
 }

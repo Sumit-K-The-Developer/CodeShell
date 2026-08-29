@@ -2,6 +2,7 @@ package com.codeshell.app.data.local
 
 import android.content.Context
 import com.codeshell.app.data.model.AiTutorMessage
+import com.codeshell.app.data.model.AiTutorMessageRole
 import com.codeshell.app.data.model.NewsAiArticleContext
 import com.codeshell.app.data.news.NewsArticle
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,20 @@ class NewsAiConversationRepository(context: Context) {
     }
 
     suspend fun cachedArticleKeys(): Set<String> = withContext(Dispatchers.IO) {
-        mutex.withLock { readCollection().sessions.keys }
+        mutex.withLock {
+            readCollection().sessions
+                .filterValues { session ->
+                    val hasQuery = session.messages.any {
+                        it.role == AiTutorMessageRole.USER.name && it.content.isNotBlank()
+                    }
+                    val hasSuccessfulResponse = session.messages.any {
+                        it.role == AiTutorMessageRole.ASSISTANT.name &&
+                            it.content.isNotBlank()
+                    }
+                    hasQuery && hasSuccessfulResponse
+                }
+                .keys
+        }
     }
 
     private fun readCollection(): AiTutorSessionCollection {

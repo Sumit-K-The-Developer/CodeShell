@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -44,6 +46,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +59,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -95,6 +99,7 @@ fun MessageBubbleContent(
     onOpenMedia: (MessageType, String, String?, String) -> Unit,
     theme: ChatTheme,
     mediaClickEnabled: Boolean = true,
+    onTap: () -> Unit = {},
     onDoubleTap: () -> Unit = {},
     onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -132,6 +137,7 @@ fun MessageBubbleContent(
         theme = theme,
         imageLoader = imageLoader,
         mediaClickEnabled = mediaClickEnabled,
+        onTap = onTap,
         onDoubleTap = onDoubleTap,
         onLongPress = onLongPress,
         onOpenLink = onOpenLink,
@@ -158,6 +164,7 @@ private fun MessageBody(
     theme: ChatTheme,
     imageLoader: ImageLoader,
     mediaClickEnabled: Boolean,
+    onTap: () -> Unit,
     onDoubleTap: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -209,6 +216,8 @@ private fun MessageBody(
                     caption = message.caption,
                     theme = theme,
                     onOpenLink = onOpenLink,
+                    onDoubleTap = onDoubleTap,
+                    onLongPress = onLongPress,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -256,6 +265,8 @@ private fun MessageBody(
                     caption = message.caption,
                     theme = theme,
                     onOpenLink = onOpenLink,
+                    onDoubleTap = onDoubleTap,
+                    onLongPress = onLongPress,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -346,6 +357,8 @@ private fun MessageBody(
                     caption = message.caption,
                     theme = theme,
                     onOpenLink = onOpenLink,
+                    onDoubleTap = onDoubleTap,
+                    onLongPress = onLongPress,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -358,6 +371,9 @@ private fun MessageBody(
                 linkColor = colors.accent,
                 style = messageTextStyle(theme),
                 onOpenLink = onOpenLink,
+                onTap = onTap,
+                onDoubleTap = onDoubleTap,
+                onLongPress = onLongPress,
             )
         }
 
@@ -371,6 +387,8 @@ private fun MediaCaption(
     caption: String?,
     theme: ChatTheme,
     onOpenLink: ((url: String, title: String) -> Unit)?,
+    onDoubleTap: () -> Unit = {},
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val text = caption?.takeIf { it.isNotBlank() } ?: return
@@ -380,6 +398,8 @@ private fun MediaCaption(
         linkColor = theme.colors.accent,
         style = messageTextStyle(theme),
         onOpenLink = onOpenLink,
+        onDoubleTap = onDoubleTap,
+        onLongPress = onLongPress,
         modifier = modifier,
     )
 }
@@ -391,6 +411,9 @@ private fun LinkableMessageText(
     linkColor: Color,
     style: TextStyle,
     onOpenLink: ((url: String, title: String) -> Unit)? = null,
+    onTap: () -> Unit = {},
+    onDoubleTap: () -> Unit = {},
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -428,23 +451,33 @@ private fun LinkableMessageText(
         }
     }
 
-    ClickableText(
+    var textLayoutResult by remember(text) { mutableStateOf<TextLayoutResult?>(null) }
+    val currentOnOpenLink by rememberUpdatedState(onOpenLink)
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    BasicText(
         text = annotated,
         style = style.copy(color = color),
-        modifier = modifier,
-        onClick = { offset ->
-            annotated
-                .getStringAnnotations(URL_TAG, offset, offset)
-                .firstOrNull()
-                ?.let { annotation ->
-                    val url = annotation.item
-                    if (onOpenLink != null) {
-                        onOpenLink(url, url)
+        modifier = modifier.pointerInput(annotated) {
+            detectTapGestures(
+                onTap = { position ->
+                    val offset = textLayoutResult?.getOffsetForPosition(position) ?: return@detectTapGestures
+                    val url = annotated
+                        .getStringAnnotations(URL_TAG, offset, offset)
+                        .firstOrNull()
+                        ?.item
+                    if (url != null) {
+                        if (currentOnOpenLink != null) currentOnOpenLink!!(url, url) else uriHandler.openUri(url)
                     } else {
-                        uriHandler.openUri(url)
+                        currentOnTap()
                     }
-                }
+                },
+                onDoubleTap = { currentOnDoubleTap() },
+                onLongPress = currentOnLongPress?.let { callback -> { _: androidx.compose.ui.geometry.Offset -> callback() } },
+            )
         },
+        onTextLayout = { textLayoutResult = it },
     )
 }
 
@@ -476,6 +509,10 @@ private fun String.toEmbeddedVideoUrl(): String? {
         }
         host.endsWith("instagram.com") &&
             uri.pathSegments.any { it.equals("reel", ignoreCase = true) || it.equals("p", ignoreCase = true) } -> this
+        (host == "t.snapchat.com" || host.endsWith("snapchat.com")) &&
+            (host == "t.snapchat.com" || uri.pathSegments.any {
+                it.equals("spotlight", ignoreCase = true) || it.equals("story", ignoreCase = true)
+            }) -> this
         else -> null
     }
 }
@@ -763,6 +800,8 @@ private const val URL_TAG = "url"
 private val URL_PATTERN = Regex(
     """(?i)\b((https?://)?([a-z0-9-]+\.)+[a-z]{2,63}(/[^\s]*)?)"""
 )
+
+internal fun containsWebLink(text: String): Boolean = URL_PATTERN.containsMatchIn(text)
 
 @Composable
 private fun MediaPlaceholderRow(

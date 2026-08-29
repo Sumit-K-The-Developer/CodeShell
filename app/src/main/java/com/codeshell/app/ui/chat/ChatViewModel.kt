@@ -2,6 +2,7 @@ package com.codeshell.app.ui.chat
 
 import android.app.Application
 import android.net.Uri
+import com.google.firebase.Timestamp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codeshell.app.CodeShellApplication
@@ -94,6 +95,7 @@ class ChatViewModel(
     private val locallyHiddenMessageIds = mutableSetOf<String>()
     private val evictedMediaMessageIds = mutableSetOf<String>()
     private val optimisticallyDeletedMessageIds = mutableSetOf<String>()
+    private val optimisticTextMessages = linkedMapOf<String, ChatMessage>()
 
     fun toggleMessageLike(messageId: String) {
         viewModelScope.launch {
@@ -252,7 +254,7 @@ class ChatViewModel(
             saveEditedMessage(editingId)
             return
         }
-        if (_uiState.value.isSending) return
+        if (_uiState.value.isSending && _uiState.value.draftMedia.isNotEmpty()) return
         val userId = currentUserId ?: return
         val recipientId = _uiState.value.otherUserId ?: return
         val text = _uiState.value.inputText
@@ -289,14 +291,27 @@ class ChatViewModel(
         }
 
         if (drafts.isEmpty() && text.isNotBlank()) {
+            val reply = _uiState.value.replyTarget?.toMessageReply()
+            val localMessage = ChatMessage(
+                id = "local-${UUID.randomUUID()}",
+                senderId = userId,
+                type = MessageType.TEXT,
+                content = text.trim(),
+                timestamp = Timestamp.now(),
+                reply = reply,
+                isPendingLocal = true,
+            )
+            optimisticTextMessages[localMessage.id] = localMessage
+            _uiState.update { it.copy(inputText = "", replyTarget = null, sendErrorMessage = null) }
+            viewModelScope.launch { appPreferences.clearChatDraft(chatId) }
+            publishMessages(immediate = true)
             // Run on the process-global coordinator so the send survives the user
             // leaving the chat screen or closing the app until it completes / is
             // cancelled manually. No progress notification is posted.
             BackgroundWorkCoordinator.launch(getApplication<Application>()) {
                 try {
-                    _uiState.update { it.copy(isSending = true, errorMessage = null) }
+                    _uiState.update { it.copy(errorMessage = null) }
                     presenceRepository.setTyping(userId, chatId, isTyping = false)
-                    val reply = _uiState.value.replyTarget?.toMessageReply()
                     val result = messageRepository.sendTextMessage(
                         chatId = chatId,
                         senderId = userId,
@@ -306,17 +321,22 @@ class ChatViewModel(
                     )
                     _uiState.update {
                         it.copy(
-                            inputText = if (result.isSuccess) "" else it.inputText,
-                            replyTarget = if (result.isSuccess) null else it.replyTarget,
                             errorMessage = messagingErrorMessage(result.exceptionOrNull()),
                             sendErrorMessage = messagingErrorMessage(result.exceptionOrNull()),
                         )
                     }
                     if (result.isSuccess) {
+                        optimisticTextMessages.remove(localMessage.id)
+                        publishMessages(immediate = true)
                         appPreferences.clearChatDraft(chatId)
                     }
-                } finally {
-                    _uiState.update { it.copy(isSending = false) }
+                } catch (error: Throwable) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = messagingErrorMessage(error) ?: error.message,
+                            sendErrorMessage = messagingErrorMessage(error) ?: error.message,
+                        )
+                    }
                 }
             }
         }
@@ -399,7 +419,11 @@ class ChatViewModel(
                 if (file != null && file.exists()) {
                     addDraftMedia(
                         uri = Uri.fromFile(file),
-                        type = if (item.isVideo) MessageType.VIDEO else MessageType.IMAGE,
+                        type = when {
+                            item.isVideo -> MessageType.VIDEO
+                            item.isImage -> MessageType.IMAGE
+                            else -> MessageType.FILE
+                        },
                         fileName = item.fileName,
                         fileSize = item.fileSize,
                     )
@@ -418,7 +442,7 @@ class ChatViewModel(
             val vaultIds = PendingChatDraft.consume()
             if (vaultIds.isNotEmpty()) addVaultDrafts(vaultIds)
 
-            val shared = PendingSharedContent.consume()
+            val shared = PendingSharedContent.consumeForChat()
             shared?.let { content ->
                 content.text?.takeIf { it.isNotBlank() }?.let { text ->
                     onInputChange(text)
@@ -468,12 +492,18 @@ class ChatViewModel(
     }
 
     fun cancelPendingUpload(localId: String) {
+        val upload = _uiState.value.pendingUploads.firstOrNull { it.localId == localId }
         activeUploadJobs.remove(localId)?.cancel()
         BackgroundUploadRegistry.cancel(localId)
         activeUploadMessageIds.remove(localId)?.let { messageId ->
             storageRepository.cancelUpload(messageId)
         }
         VideoUploadProcessor.cancelActive()
+        upload?.uploadedMessageId?.let { messageId ->
+            viewModelScope.launch(Dispatchers.IO) {
+                storageRepository.deleteMessageMedia(chatId, messageId)
+            }
+        }
         _uiState.update { state ->
             state.copy(pendingUploads = state.pendingUploads.filterNot { it.localId == localId })
         }
@@ -483,11 +513,16 @@ class ChatViewModel(
     fun retryPendingUpload(localId: String) {
         val upload = _uiState.value.pendingUploads.firstOrNull { it.localId == localId } ?: return
         if (upload.stage != UploadStage.FAILED) return
+        if (blockIfOffline()) return
+        if (upload.uploadedMessageId != null && upload.uploadedUrl != null) {
+            retryUploadedMedia(upload)
+            return
+        }
         _uiState.update { state ->
             state.copy(pendingUploads = state.pendingUploads.filterNot { it.localId == localId })
         }
         BackgroundUploadRegistry.remove(localId)
-        uploadMedia(upload.localUri, upload.type, upload.fileName, upload.fileSize)
+        uploadMedia(upload.localUri, upload.type, upload.fileName, upload.fileSize, upload.caption)
     }
 
     fun sendImage(uri: Uri) {
@@ -543,7 +578,8 @@ class ChatViewModel(
             type = type,
             localUri = uri,
             fileName = fileName,
-            fileSize = fileSize
+            fileSize = fileSize,
+            caption = caption,
         )
 
         _uiState.update { it.copy(pendingUploads = it.pendingUploads + pending, errorMessage = null) }
@@ -640,14 +676,42 @@ class ChatViewModel(
                         messageId = messageId,
                         reply = reply,
                     )
-                    _uiState.update { state ->
-                        state.copy(
-                            pendingUploads = state.pendingUploads.filterNot { it.localId == localId },
-                            replyTarget = if (sendResult.isSuccess) null else state.replyTarget,
-                            errorMessage = messagingErrorMessage(sendResult.exceptionOrNull())
-                        )
+                    if (sendResult.isSuccess) {
+                        _uiState.update { state ->
+                            state.copy(
+                                pendingUploads = state.pendingUploads.filterNot { it.localId == localId },
+                                replyTarget = null,
+                                errorMessage = null,
+                            )
+                        }
+                        BackgroundUploadRegistry.remove(localId)
+                    } else {
+                        val errorMessage = messagingErrorMessage(sendResult.exceptionOrNull())
+                            ?: "Could not send attachment"
+                        _uiState.update { state ->
+                            state.copy(
+                                pendingUploads = state.pendingUploads.map { upload ->
+                                    if (upload.localId == localId) {
+                                        upload.copy(
+                                            stage = UploadStage.FAILED,
+                                            errorMessage = errorMessage,
+                                            uploadedMessageId = messageId,
+                                            uploadedUrl = url,
+                                        )
+                                    } else upload
+                                },
+                                errorMessage = errorMessage,
+                            )
+                        }
+                        BackgroundUploadRegistry.update(chatId, localId) { upload ->
+                            upload.copy(
+                                stage = UploadStage.FAILED,
+                                errorMessage = errorMessage,
+                                uploadedMessageId = messageId,
+                                uploadedUrl = url,
+                            )
+                        }
                     }
-                    BackgroundUploadRegistry.remove(localId)
                 },
                 onFailure = { error ->
                     if (error is CancellationException) {
@@ -674,6 +738,64 @@ class ChatViewModel(
             job.cancel()
             activeUploadMessageIds[localId]?.let(storageRepository::cancelUpload)
         }
+    }
+
+    private fun retryUploadedMedia(upload: PendingUpload) {
+        val userId = currentUserId ?: return
+        val recipientId = _uiState.value.otherUserId ?: return
+        val messageId = upload.uploadedMessageId ?: return
+        val uploadedUrl = upload.uploadedUrl ?: return
+        val retrying = upload.copy(stage = UploadStage.PREPARING, errorMessage = null)
+        _uiState.update { state ->
+            state.copy(
+                pendingUploads = state.pendingUploads.map {
+                    if (it.localId == upload.localId) retrying else it
+                },
+                errorMessage = null,
+            )
+        }
+        BackgroundUploadRegistry.upsert(chatId, retrying)
+        val job = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
+            try {
+                val result = messageRepository.sendMediaMessage(
+                    chatId = chatId,
+                    senderId = userId,
+                    recipientId = recipientId,
+                    type = upload.type,
+                    contentUrl = uploadedUrl,
+                    fileName = upload.fileName,
+                    fileSize = upload.fileSize,
+                    caption = upload.caption,
+                    messageId = messageId,
+                )
+                if (result.isSuccess) {
+                    _uiState.update { state ->
+                        state.copy(
+                            pendingUploads = state.pendingUploads.filterNot { it.localId == upload.localId },
+                            replyTarget = null,
+                        )
+                    }
+                    BackgroundUploadRegistry.remove(upload.localId)
+                } else {
+                    val errorMessage = messagingErrorMessage(result.exceptionOrNull())
+                        ?: "Could not send attachment"
+                    val failed = upload.copy(stage = UploadStage.FAILED, errorMessage = errorMessage)
+                    _uiState.update { state ->
+                        state.copy(
+                            pendingUploads = state.pendingUploads.map {
+                                if (it.localId == upload.localId) failed else it
+                            },
+                            errorMessage = errorMessage,
+                        )
+                    }
+                    BackgroundUploadRegistry.update(chatId, upload.localId) { failed }
+                }
+            } finally {
+                activeUploadJobs.remove(upload.localId)
+            }
+        }
+        activeUploadJobs[upload.localId] = job
+        BackgroundUploadRegistry.setCanceler(upload.localId) { job.cancel() }
     }
 
     private fun updatePendingUpload(
@@ -1170,7 +1292,7 @@ class ChatViewModel(
             if (!immediate) delay(PUBLISH_DEBOUNCE_MS)
             val merged = mergeMessages(olderMessages, recentMessages)
             evictExpiredMedia(merged)
-            val visible = merged
+            val visible = (merged
                 .map { message ->
                     if (message.id in optimisticallyDeletedMessageIds) {
                         message.copy(deleted = true, content = "")
@@ -1178,7 +1300,9 @@ class ChatViewModel(
                         message
                     }
                 }
-                .filterNot { message -> isHiddenFromUi(message) }
+                .filterNot { message -> isHiddenFromUi(message) } + optimisticTextMessages.values)
+                .distinctBy { it.id }
+                .sortedBy { it.timestamp?.seconds ?: Long.MIN_VALUE }
             _uiState.update {
                 it.copy(
                     messages = visible,

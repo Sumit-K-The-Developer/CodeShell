@@ -72,6 +72,11 @@
     <string name="video_capture_failed">Video capture was canceled or failed.</string>
     <string name="camera">Camera</string>
     <string name="attach_file">Attach file</string>
+    <string name="attach_vault">Attach from Vault</string>
+    <string name="vault_picker_title">Choose from Vault</string>
+    <string name="vault_picker_empty">No files in the Vault yet.</string>
+    <string name="vault_picker_selected">%1$d selected</string>
+    <string name="vault_picker_confirm">Add</string>
     <string name="hold_to_record">Hold to record voice</string>
     <string name="uploading_output">Uploading output…</string>
     <string name="image_output">Image output</string>
@@ -107,12 +112,18 @@
     <string name="chat_access_code_confirm">Confirm access code</string>
     <string name="chat_access_code_current">Current access code</string>
     <string name="chat_access_code_change">Change access code</string>
+    <string name="chat_access_code_remove">Remove access code</string>
+    <string name="chat_access_code_enabled">Access code enabled</string>
+    <string name="chat_access_code_changed">Access code changed</string>
+    <string name="chat_access_code_disabled">Access code removed</string>
     <string name="chat_access_code_prompt">auth:</string>
     <string name="terminal_revoked">Terminal Revoked</string>
     <string name="hide_on_home">Hide on Home press</string>
     <string name="hide_on_home_desc">Return to the learning screen when you press Home.</string>
     <string name="terminate_on_lock">Close when device locks</string>
     <string name="terminate_on_lock_desc">When the screen turns off or the phone locks, CodeShell closes completely.</string>
+    <string name="disconnect_on_device_lock">Disconnect calls on device lock</string>
+    <string name="disconnect_on_device_lock_desc">End active audio or video calls when the phone is locked.</string>
     <string name="close_chat_on_inactivity">Auto-close session on inactivity</string>
     <string name="close_chat_on_inactivity_desc">Return to the learning screen after a period with no activity in a session.</string>
     <string name="chat_inactivity_timeout">Inactivity timeout</string>
@@ -234,6 +245,9 @@
     <string name="chat_interface_style_ide">IDE</string>
     <string name="chat_interface_style_ide_light">IDE light</string>
     <string name="chat_message_font_scale">Message text size</string>
+    <string name="vault_view_grid">Vault view grid</string>
+    <string name="vault_view_grid_3">3 grid</string>
+    <string name="vault_view_grid_4">4 grid</string>
     <string name="chat_message_font_scale_desc">Adjust text size in session message bubbles.</string>
     <string name="chat_message_font_scale_value">%1$d%%</string>
     <string name="extended_learning">Extended learning</string>
@@ -375,6 +389,13 @@
 
     <!-- Vault / file viewer UI -->
     <string name="vault_title">Vault</string>
+    <string name="extract_zip">Extract ZIP</string>
+    <string name="extract_zip_confirm">Extract "%1$s" into Vault? The ZIP file will be deleted after successful extraction.</string>
+    <string name="extracting_zip_progress">Extracting ZIP: %1$d/%2$d</string>
+    <string name="vault_duplicate_title">Duplicate file name</string>
+    <string name="vault_duplicate_message">A file named "%1$s" is already in Vault.</string>
+    <string name="vault_duplicate_replace">Replace</string>
+    <string name="vault_duplicate_skip">Skip</string>
     <string name="select_items">Select items</string>
     <string name="add_to_vault">Add to Vault</string>
     <string name="no_media_saved_yet">No media saved yet</string>

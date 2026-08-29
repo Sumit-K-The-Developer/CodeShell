@@ -15,6 +15,7 @@ import com.codeshell.app.data.repository.VaultRepository
 import com.codeshell.app.data.repository.MessageRepository
 import com.codeshell.app.data.repository.StorageRepository
 import com.codeshell.app.util.BackgroundWorkCoordinator
+import com.codeshell.app.util.queryDisplayName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,6 +29,20 @@ import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import java.util.UUID
+import java.util.Locale
+
+data class VaultDuplicateImport(
+    val uri: Uri,
+    val fileName: String,
+    val mimeType: String,
+    val existingItem: VaultItem,
+)
+
+data class VaultImportSummary(
+    val importedCount: Int,
+    val skippedCount: Int,
+    val replacedCount: Int,
+)
 
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -44,10 +59,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var urlSaveJob: Job? = null
     private var urisSaveJob: Job? = null
     private var sendJob: Job? = null
-
-    // Items staged for deletion that can still be restored via the Undo action.
-    // The real disk deletion is deferred until the undo window elapses.
-    private var pendingDeleteJob: Job? = null
+    private var importCompletion: ((VaultImportSummary) -> Unit)? = null
+    private var importedCount = 0
+    private var skippedCount = 0
+    private var replacedCount = 0
 
     fun loadItems() {
         viewModelScope.launch {
@@ -130,20 +145,67 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isSaving = false, saveProgress = null) }
     }
 
-    fun saveToVaultFromUris(uris: List<Uri>, deleteSource: Boolean = true, onAllComplete: () -> Unit) {
+    fun saveToVaultFromUris(
+        uris: List<Uri>,
+        deleteSource: Boolean = true,
+        onAllComplete: (VaultImportSummary) -> Unit,
+    ) {
         urisSaveJob?.cancel()
-        _uiState.update { it.copy(isSaving = true, saveProgress = null, errorMessage = null) }
+        importCompletion = onAllComplete
+        importedCount = 0
+        skippedCount = 0
+        replacedCount = 0
+        _uiState.update {
+            it.copy(
+                isSaving = true,
+                saveProgress = null,
+                errorMessage = null,
+                pendingDuplicateImports = emptyList(),
+            )
+        }
 
         urisSaveJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             try {
-                vaultRepository.saveFromUris(uris, deleteSource = deleteSource) { completed, total ->
-                    _uiState.update { it.copy(saveProgress = completed to total) }
-                }.onSuccess {
+                val resolver = getApplication<Application>().contentResolver
+                val existingItems = vaultRepository.getAllItems()
+                val existingIds = existingItems.mapTo(mutableSetOf()) { it.id }
+                val existingByName = existingItems
+                    .associateBy { it.fileName.lowercase(Locale.ROOT) }
+                val duplicateImports = mutableListOf<VaultDuplicateImport>()
+                val newUris = mutableListOf<Uri>()
+                uris.forEachIndexed { index, uri ->
+                    val rawName = queryDisplayName(resolver, uri) ?: "file_${index + 1}"
+                    val fileName = rawName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    val existing = existingByName[fileName.lowercase(Locale.ROOT)]
+                    if (existing != null) {
+                        duplicateImports += VaultDuplicateImport(
+                            uri = uri,
+                            fileName = fileName,
+                            mimeType = resolver.getType(uri) ?: "application/octet-stream",
+                            existingItem = existing,
+                        )
+                    } else {
+                        newUris += uri
+                    }
+                }
+
+                val importResult = if (newUris.isEmpty()) {
+                    Result.success(emptyList())
+                } else {
+                    vaultRepository.saveFromUris(newUris, deleteSource = deleteSource) { completed, total ->
+                        _uiState.update { it.copy(saveProgress = completed to total) }
+                    }
+                }
+                importResult.onSuccess {
                     loadItems()
-                    onAllComplete()
                 }.onFailure { error ->
+                    loadItems()
                     _uiState.update { it.copy(errorMessage = error.message) }
                 }
+                val importedItems = vaultRepository.getAllItems()
+                importedCount = importedItems.count { it.id !in existingIds }
+                _uiState.update { it.copy(pendingDuplicateImports = duplicateImports) }
+                completeImportIfReady()
             } catch (e: Throwable) {
                 // A thrown exception must never escape and crash the process;
                 // surface it as an in-app error instead.
@@ -230,6 +292,52 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun completeImportIfReady() {
+        if (_uiState.value.pendingDuplicateImports.isNotEmpty()) return
+        val summary = VaultImportSummary(importedCount, skippedCount, replacedCount)
+        importCompletion?.invoke(summary)
+        importCompletion = null
+    }
+
+    fun resolveDuplicateImport(replace: Boolean) {
+        val duplicate = _uiState.value.pendingDuplicateImports.firstOrNull() ?: return
+        if (!replace) {
+            skippedCount++
+            _uiState.update {
+                it.copy(pendingDuplicateImports = it.pendingDuplicateImports.drop(1))
+            }
+            completeImportIfReady()
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+            vaultRepository.replaceItem(
+                item = duplicate.existingItem,
+                sourceUri = duplicate.uri,
+                fileName = duplicate.fileName,
+                mimeType = duplicate.mimeType,
+            ).onSuccess { updated ->
+                _uiState.update { state ->
+                    state.copy(
+                        isSaving = false,
+                        items = state.items.map { if (it.id == updated.id) updated else it },
+                        pendingDuplicateImports = state.pendingDuplicateImports.drop(1),
+                    )
+                }
+                replacedCount++
+                completeImportIfReady()
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = error.message ?: "Could not replace duplicate file",
+                    )
+                }
+            }
+        }
+    }
+
     fun moveToGallery(item: VaultItem) {
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true) }
@@ -241,6 +349,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                             exportSuccessMessage = "Moved to gallery",
                             isExporting = false,
                             items = state.items.filterNot { it.id == item.id },
+                            selectedItem = state.selectedItem?.takeUnless { it.id == item.id },
                         )
                     }
                 }
@@ -266,6 +375,45 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { error ->
                     _uiState.update {
                         it.copy(errorMessage = error.message, isExporting = false)
+                    }
+                }
+        }
+    }
+
+    fun extractZip(item: VaultItem) {
+        if (_uiState.value.isExporting) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isExporting = true,
+                    extractionProgress = 0 to 0,
+                    errorMessage = null,
+                )
+            }
+            vaultRepository.extractZip(item) { completed, total ->
+                _uiState.update { it.copy(extractionProgress = completed to total) }
+            }
+                .onSuccess { extractedItems ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isExporting = false,
+                            extractionProgress = null,
+                            exportSuccess = true,
+                            exportSuccessMessage = "Extracted ${extractedItems.size} item(s) from ZIP",
+                            items = (state.items.filterNot { it.id == item.id } + extractedItems)
+                                .distinctBy { it.id }
+                                .sortedByDescending { it.dateSaved },
+                            selectedItem = state.selectedItem?.takeUnless { it.id == item.id },
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isExporting = false,
+                            extractionProgress = null,
+                            errorMessage = error.message ?: "Could not extract ZIP",
+                        )
                     }
                 }
         }
@@ -320,6 +468,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectionMode = !it.selectionMode, selectedItems = if (it.selectionMode) emptySet() else it.selectedItems) }
     }
 
+    fun startItemSelection(item: VaultItem) {
+        _uiState.update {
+            it.copy(selectionMode = true, selectedItems = it.selectedItems + item.id)
+        }
+    }
+
     fun toggleItemSelection(item: VaultItem) {
         _uiState.update { state ->
             val updated = state.selectedItems.toMutableSet()
@@ -361,6 +515,25 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = lastError
                 )
             }
+        }
+    }
+
+    fun setItemSelection(item: VaultItem, selected: Boolean) {
+        _uiState.update { state ->
+            val updated = state.selectedItems.toMutableSet()
+            if (selected) updated.add(item.id) else updated.remove(item.id)
+            state.copy(selectedItems = updated)
+        }
+    }
+
+    fun setItemsSelection(items: Collection<VaultItem>, selected: Boolean) {
+        if (items.isEmpty()) return
+        _uiState.update { state ->
+            val updated = state.selectedItems.toMutableSet()
+            items.forEach { item ->
+                if (selected) updated.add(item.id) else updated.remove(item.id)
+            }
+            state.copy(selectedItems = updated)
         }
     }
 
@@ -416,7 +589,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             var outputUri: Uri? = null
             try {
                 withContext(Dispatchers.IO) {
-                    val displayName = "vault_export_${System.currentTimeMillis()}.zip"
+                    val displayName = "CodeShell_Doc_${System.currentTimeMillis()}.zip"
                     val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                     } else {
@@ -489,14 +662,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteItemWithUndo(item: VaultItem) {
-        stageDeletion(listOf(item))
-    }
+    fun deleteItemWithUndo(item: VaultItem): Long = stageDeletion(listOf(item))
 
-    fun deleteSelectedItems() {
+    fun deleteSelectedItems(): Long {
         val itemsToDelete = _uiState.value.items.filter { it.id in _uiState.value.selectedItems }
-        if (itemsToDelete.isEmpty()) return
-        stageDeletion(itemsToDelete)
+        if (itemsToDelete.isEmpty()) return 0L
+        return stageDeletion(itemsToDelete)
     }
 
     /**
@@ -505,8 +676,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
      * them. Any previously staged (not yet flushed) batch is deleted first so
      * repeated deletes never leak files back into the vault on restart.
      */
-    private fun stageDeletion(items: List<VaultItem>) {
-        pendingDeleteJob?.cancel()
+    private fun stageDeletion(items: List<VaultItem>): Long {
         val stagedIds = items.mapTo(mutableSetOf()) { it.id }
         val token = PendingVaultDeletionRegistry.stage(items)
         _uiState.update { state ->
@@ -518,7 +688,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 selectedItems = emptySet(),
             )
         }
-        pendingDeleteJob = BackgroundWorkCoordinator.launch(getApplication<Application>()) {
+        BackgroundWorkCoordinator.launch(getApplication<Application>()) {
             delay(DELETE_UNDO_WINDOW_MS)
             val toDelete = PendingVaultDeletionRegistry.flush(token)
             toDelete.forEach { item ->
@@ -529,13 +699,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        return token
     }
 
-    /** Restores the most recently staged (undo-pending) deletion, if any. */
-    fun undoPendingDelete() {
-        pendingDeleteJob?.cancel()
-        pendingDeleteJob = null
-        val restored = PendingVaultDeletionRegistry.undo()
+    /** Restores the deletion batch associated with the user's Undo action. */
+    fun undoPendingDelete(token: Long) {
+        val restored = PendingVaultDeletionRegistry.undo(token)
         if (restored.isEmpty()) return
         _uiState.update { state ->
             state.copy(
@@ -564,11 +733,21 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Sends the same Vault payload to every selected chat. */
-    fun sendVaultItemsToChats(itemIds: List<String>, chatIds: Set<String>) {
+    fun sendVaultItemsToChats(
+        itemIds: List<String>,
+        chatIds: Set<String>,
+        onComplete: (Boolean) -> Unit = {},
+    ) {
         val itemsToSend = itemIds.mapNotNull { id ->
             _uiState.value.items.find { it.id == id }
-        }.ifEmpty { return }
-        if (chatIds.isEmpty()) return
+        }.ifEmpty {
+            onComplete(false)
+            return
+        }
+        if (chatIds.isEmpty()) {
+            onComplete(false)
+            return
+        }
         sendJob?.cancel()
         val total = itemsToSend.size * chatIds.size
         _uiState.update { it.copy(isSending = true, sendProgress = 0 to total, errorMessage = null) }
@@ -592,6 +771,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = lastError,
                 )
             }
+            onComplete(lastError == null && sent == total)
         }
         _uiState.update { it.copy(selectionMode = false, selectedItems = emptySet()) }
     }
@@ -617,7 +797,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 chatId = chatId,
                 senderId = currentUserId,
                 recipientId = recipientId,
-                type = if (vaultItem.isVideo) MessageType.VIDEO else MessageType.IMAGE,
+                type = when {
+                    vaultItem.isVideo -> MessageType.VIDEO
+                    vaultItem.isImage -> MessageType.IMAGE
+                    else -> MessageType.FILE
+                },
                 contentUrl = url,
                 fileName = vaultItem.fileName,
                 messageId = messageId,
@@ -644,6 +828,7 @@ data class VaultUiState(
     val sendProgress: Pair<Int, Int>? = null, // completed/total
     val isExporting: Boolean = false,
     val exportProgress: Pair<Int, Int>? = null,
+    val extractionProgress: Pair<Int, Int>? = null,
     val selectedItem: VaultItem? = null,
     val showChatPicker: Boolean = false,
     val sendSuccess: Boolean = false,
@@ -652,4 +837,5 @@ data class VaultUiState(
     val errorMessage: String? = null,
     val selectionMode: Boolean = false,
     val selectedItems: Set<String> = emptySet(),
+    val pendingDuplicateImports: List<VaultDuplicateImport> = emptyList(),
 )

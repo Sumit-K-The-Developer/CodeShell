@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
     private var hideOnHomePress = false
     private var terminateOnLock = false
     private var secureTerminalOnly = true
+    private var disconnectOnDeviceLock = true
     private var lockReceiverRegistered = false
 
     /** Outgoing call requested before the platform permission activity opened. */
@@ -68,8 +69,13 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF) {
                 VaultAccessSession.lock()
+                if (hasActiveCallForPrivacy() && disconnectOnDeviceLock) {
+                    activeCallDeviceLockHandler?.invoke()
+                    learningOpenTick++
+                    return
+                }
                 if (terminateOnLock && !suppressTerminateOnLock && shouldApplySecureExit()) {
-                    finishAffinity()
+                    if (secureTerminalOnly) learningOpenTick++ else finishAffinity()
                 }
             }
         }
@@ -96,12 +102,18 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
         lifecycleScope.launch {
             appPreferences.terminateOnLock.collect { enabled ->
                 terminateOnLock = enabled
-                updateLockReceiverRegistration(enabled)
+                updateLockReceiverRegistration(enabled || disconnectOnDeviceLock)
             }
         }
         lifecycleScope.launch {
             appPreferences.secureTerminalOnly.collect { enabled ->
                 secureTerminalOnly = enabled
+            }
+        }
+        lifecycleScope.launch {
+            appPreferences.disconnectOnDeviceLock.collect { enabled ->
+                disconnectOnDeviceLock = enabled
+                updateLockReceiverRegistration(terminateOnLock || enabled)
             }
         }
 
@@ -343,12 +355,16 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (hasActiveCallForPrivacy() && disconnectOnDeviceLock) {
+            learningOpenTick++
+            return
+        }
         if (hideOnHomePress &&
             !suppressHideOnHome &&
             !SecureExitGuard.suppressHideOnHome &&
             shouldApplySecureExit()
         ) {
-            finish()
+            if (secureTerminalOnly) learningOpenTick++ else finish()
         }
     }
 
@@ -362,6 +378,14 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
 
     /** Prevents lock-screen exit while proximity blanks the display during a voice call. */
     var suppressTerminateOnLock = false
+
+    var isCallActiveForPrivacy = false
+    var activeCallStateProvider: (() -> Boolean)? = null
+    var activeCallDeviceLockHandler: (() -> Unit)? = null
+    val disconnectOnDeviceLockForPrivacy: Boolean get() = disconnectOnDeviceLock
+
+    private fun hasActiveCallForPrivacy(): Boolean =
+        isCallActiveForPrivacy || activeCallStateProvider?.invoke() == true
 
     var notificationOpenTick by mutableIntStateOf(0)
         private set
